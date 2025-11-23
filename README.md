@@ -23,7 +23,7 @@ The repository is organized into the following high-level directories:
 
 The core framework relies on the following key Python package:
 
-* **`langchain`**
+* **`langchain`, `pyverilog`**
 
 ### 🔑 API Key Configuration
 
