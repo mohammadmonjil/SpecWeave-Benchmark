@@ -1,0 +1,831 @@
+{
+  "group1_item0_USB device addressing and endpoint model": {
+    "done": true,
+    "title": "USB device addressing and endpoint model",
+    "confidence": "9",
+    "explanation": "The core implements a 7-bit function address register (set by host via SET_ADDRESS) and filters tokens by this address in the protocol layer. Endpoints are explicitly modeled (EP0..EP15) with per-endpoint number and IN/OUT direction fields, and all data/handshakes are decided per endpoint. Unconfigured/disabled endpoints either never match (dummy) or NACK/ignore until CSR and buffers are programmed, so communication occurs only via configured endpoints. While uniqueness of the address is host-managed (not enforceable by the device), the device fully supports address assignment and endpoint-based communication as specified.",
+    "key_modules": [
+      "usbf_rf",
+      "usbf_pl",
+      "usbf_pe",
+      "usbf_ep_rf",
+      "usbf_pd",
+      "usbf_utmi_if/usbf_utmi_ls"
+    ]
+  },
+  "group1_item1_Endpoint 0 (Default Control Pipe) requir": {
+    "done": true,
+    "title": "Endpoint 0 (Default Control Pipe) requirements",
+    "confidence": "4",
+    "explanation": "Some aspects are covered by the available modules, but key mandatory points are not evidenced or are contradicted. Evidence: (1) EP0 always present is stated in usbf_rf. (2) Control-transfer sequencing (SETUP/IN/OUT, handshakes) is supported by the packet engine (usbf_pe), so the design is capable of control endpoints; EP0 specifically being bidirectional control is implied but not explicitly guaranteed\u2014benefit of doubt given. (3) Pre-configuration availability is not explicitly stated but not contradicted\u2014benefit of doubt. (4) Setup stage = 8 bytes is not enforced or checked in usbf_pd/usbf_pe; no explicit length check found\u2014benefit of doubt, inconclusive. (5) After reset MaxPacketSize=8 for control is contradicted: usbf_ep_rf CSR reset values show MaxPacketSize resets to 0, not 8\u2014this point fails. With one mandatory point failing and others only implicit/inconclusive, overall coverage is partial.",
+    "key_modules": [
+      "usbf_rf",
+      "usbf_pe",
+      "usbf_pd",
+      "usbf_ep_rf"
+    ]
+  },
+  "group1_item2_Endpoint availability and limits": {
+    "done": true,
+    "title": "Endpoint availability and limits",
+    "confidence": "6",
+    "explanation": "The design clearly supports up to 16 endpoints (EP0..EP15) with per\u2011endpoint direction and type, matching the full\u2011speed maximum (evidence: compile\u2011time USBF_HAVE_EPn macros and per\u2011EP CSR windows). However, there is no explicit gating that prevents use of non\u2011EP0 endpoints until the device is configured (no device configuration state or SET_CONFIGURATION handling is described), and there is no enforcement of the low\u2011speed limit of at most two optional endpoints. These two points appear unimplemented or at least are not evidenced in the provided modules. Giving benefit of doubt: if configuration gating exists in unseen logic, it is not documented here.",
+    "key_modules": [
+      "usbf_top",
+      "usbf_rf",
+      "usbf_pl",
+      "usbf_pe",
+      "usbf_ep_rf",
+      "usbf_utmi_if"
+    ]
+  },
+  "group1_item3_USB transactions and packets overview": {
+    "done": true,
+    "title": "USB transactions and packets overview",
+    "confidence": "9",
+    "explanation": "The core implements full USB transaction semantics: tokens are decoded for type/direction/address/endpoint (usbf_pd within usbf_pl extracts ADDR/ENDP and checks CRC5; usbf_pl gates by function address). Direction and endpoint policy are enforced (usbf_pe uses CSR-configured IN/OUT/control types, matches endpoints, and decides acceptance/ignore). Optional DATA stage is handled (usbf_pd streams payload and checks CRC16; usbf_idma moves payload to/from memory; usbf_pa assembles Data PID + payload + CRC16 including ZLP). Handshakes are both generated and consumed (usbf_pa transmits ACK/NAK/STALL/NYET; usbf_pd detects ACK; usbf_pe selects and times handshakes, waits for host ACK on IN). This matches the spec requirements.",
+    "key_modules": [
+      "usbf_pl",
+      "usbf_pd",
+      "usbf_pe",
+      "usbf_pa",
+      "usbf_idma",
+      "usbf_rf"
+    ]
+  },
+  "group1_item4_Handshake semantics (ACK/NAK/STALL) and ": {
+    "done": true,
+    "title": "Handshake semantics (ACK/NAK/STALL) and flow control",
+    "confidence": "9",
+    "explanation": "The design explicitly implements USB handshakes and flow control. usbf_pl enforces per-endpoint policy and selects OUT handshakes (ACK/NAK/STALL/NYET) and IN data/handshake per transfer-type rules. usbf_pa generates the handshake PIDs. usbf_pe details when to return each: STALL if the endpoint is stalled (CSR encodes stall state), NAK when buffers/DMA are temporarily unavailable or size-policy violations occur (temporary backpressure), and ACK on successful transfers; NYET is used in HS as appropriate. It also treats isochronous differently (e.g., no ACK wait), matching the spec\u2019s transfer-type distinctions. Clearing of a halt via control requests is implied by the presence of the control endpoint engine and writable stall control in the CSR, though not spelled out step-by-step; given typical USB device behavior, this is reasonably covered.",
+    "key_modules": [
+      "usbf_pl",
+      "usbf_pe",
+      "usbf_pa",
+      "usbf_rf"
+    ]
+  },
+  "group1_item5_CRC protection": {
+    "done": true,
+    "title": "CRC protection",
+    "confidence": 9,
+    "explanation": "The design implements full CRC protection and proper error handling. On RX, usbf_pd checks token CRC5 and computes/validates DATA CRC16, flagging crc5_err/crc16_err. The protocol layer usbf_pl filters out bad tokens (match_o requires !crc5_err) so control/token logic won\u2019t act on corrupted tokens. For DATA, usbf_pe treats crc16_err as a failure: the OUT flow aborts (no ACK/accept), and int_crc16_set is raised, satisfying 'do not accept data on CRC failure.' On TX, usbf_pa generates and appends the proper CRC16. CRC engines usbf_crc5 and usbf_crc16 provide the actual computations. This covers tokens/control/data and failure handling as required.",
+    "key_modules": [
+      "usbf_pl",
+      "usbf_pd",
+      "usbf_pe",
+      "usbf_pa",
+      "usbf_crc5",
+      "usbf_crc16"
+    ]
+  },
+  "group1_item6_Short packet semantics and MaxPacketSize": {
+    "done": true,
+    "title": "Short packet semantics and MaxPacketSize usage",
+    "confidence": "8",
+    "explanation": "The design enforces MaxPacketSize on device IN transmissions and supports short-packet semantics. In usbf_pe, max_pl_sz is decoded from CSR and IN transfer size is size_next = min(buf_size, max_pl_sz), ensuring the endpoint never transmits more than its reported MaxPacketSize. For multi-packet IN transfers, this segmentation makes all full packets MaxPacketSize and the final packet short if the remainder is < MaxPacketSize. usbf_pa/usbf_pl support ZLP, allowing proper end-of-transfer when the total length is an exact multiple of MaxPacketSize. For OUT handling, usbf_pe checks to_small (sizu_c < max_pl_sz) and to_large (sizu_c > max_pl_sz) and responds with NACK/NYET/ACK per policy, preventing acceptance of oversized packets unless explicitly allowed by configuration. The point about the host aborting/stalling when it receives more than it expects is host-side behavior; while not enforced by the device, there is no counter-evidence and the device never exceeds its MaxPacketSize on transmit. Overall, the modules collectively cover the short-packet semantics and MaxPacketSize usage.",
+    "key_modules": [
+      "usbf_pl",
+      "usbf_pe",
+      "usbf_pa",
+      "usbf_idma"
+    ]
+  },
+  "group1_item7_Control transfers (message pipe)": {
+    "done": true,
+    "title": "Control transfers (message pipe)",
+    "confidence": "7",
+    "explanation": "Evidence shows the control transfer structure and key behaviors are implemented. usbf_pe explicitly sequences the control endpoint through SETUP \u2192 DATA_IN/DATA_OUT \u2192 STATUS_IN/STATUS_OUT, and it can abort an in\u2011progress transfer on a new token match, enabling acceptance of a new SETUP at any time. usbf_pd decodes SETUP tokens and usbf_pl gates them with address/CRC checks. usbf_pa supports zero\u2011length packets for STATUS stages. While the RTL does not explicitly constrain full\u2011speed MaxPacketSize to {8,16,32,64} (CSR holds a generic max_pl_sz field) and does not explicitly state the special rule that a stalled control endpoint still accepts the next SETUP, nothing in the control\u2011EP policy blocks this behavior; thus we give benefit of doubt. The spec point about a premature short IN advancing to STATUS is not stated verbatim, but the control\u2011EP sequencing and size handling (min(buf_size, max_pl_sz) and ZLP support) indicate the engine can complete the DATA stage early and proceed to STATUS.",
+    "key_modules": [
+      "usbf_pl",
+      "usbf_pe",
+      "usbf_pd",
+      "usbf_pa",
+      "usbf_rf",
+      "usbf_top"
+    ]
+  },
+  "group1_item8_Bulk transfers (stream pipe)": {
+    "done": true,
+    "title": "Bulk transfers (stream pipe)",
+    "confidence": "9",
+    "explanation": "Mixed results: (1) Direction per endpoint is supported via endpoint CSR direction bits (IN or OUT) \u2014 satisfied. (2) Reliability via ACK/NAK/STALL handshakes with timeouts/host retries is implemented by the packet engine and TX assembler \u2014 satisfied. (3) Data toggle updates appear to occur only on successful completions (e.g., IN updates after host ACK; OUT updates when ACK/NYET success) \u2014 satisfied. (4) Reset of data toggles to DATA0 after clearing STALL is not explicitly shown \u2014 inconclusive, benefit of doubt. (5) Speed requirement \u2018full-speed only\u2019 is contradicted by explicit High-Speed support and negotiation (mode_hs, chirp, PING/NYET) \u2014 counter-evidence, fails. (6) MaxPacketSize in {8,16,32,64} is not enforced in hardware (generic 11-bit max_pl_sz), could be software-configured but not proven \u2014 inconclusive, benefit of doubt. Since the HS support directly contradicts the \u2018full-speed only\u2019 requirement, overall the module does not meet this spec.",
+    "key_modules": [
+      "usbf_utmi_if",
+      "usbf_utmi_ls",
+      "usbf_pe",
+      "usbf_pa",
+      "usbf_ep_rf",
+      "usbf_pl"
+    ]
+  },
+  "group1_item9_Interrupt transfers (stream pipe)": {
+    "done": true,
+    "title": "Interrupt transfers (stream pipe)",
+    "confidence": "8",
+    "explanation": "Key required aspects are missing or unproven. Counter-evidence: the link/state logic explicitly handles only High-Speed and Full-Speed, with no Low-Speed path, while interrupt transfers must support Full- and Low-Speed. There is no RTL enforcement of interrupt-specific MaxPacketSize limits (FS \u226464, LS \u22648) or polling interval (bInterval) semantics. While the core can NAK when no data (implemented in the packet engine) and it manages data PID toggles generically, there is no explicit interrupt-type handling nor proof that clearing a halt automatically resets the data toggle to DATA0.",
+    "key_modules": [
+      "usbf_utmi_ls",
+      "usbf_utmi_if",
+      "usbf_pe",
+      "usbf_ep_rf",
+      "usbf_pl"
+    ]
+  },
+  "group1_item10_Isochronous transfers (stream pipe)": {
+    "done": true,
+    "title": "Isochronous transfers (stream pipe)",
+    "confidence": "8",
+    "explanation": "Partial ISO behavior exists, but key requirements are violated. Covered: unidirectional endpoints via CSR direction fields; MaxPacketSize up to 11 bits; CRC/timeout error flags; ISO IN skips ACK wait and ISO OUT skips post\u2011data handshake; variable packet sizes appear supported. Failed: FS\u2011only is contradicted by explicit High\u2011Speed negotiation/support; ISO endpoints can still emit handshakes (NACK/STALL/NYET) from the IDLE decision path and can be stalled via CSR, violating 'no handshakes' and 'device never stalls isochronous endpoints'. 'One data transaction per frame' is not enforced (no explicit frame gating found).",
+    "key_modules": [
+      "usbf_pe",
+      "usbf_rf",
+      "usbf_utmi_if",
+      "usbf_utmi_ls"
+    ]
+  },
+  "group1_item11_Frames, SOF handling, and prebuffering (": {
+    "done": true,
+    "title": "Frames, SOF handling, and prebuffering (isochronous)",
+    "confidence": "4",
+    "explanation": "The core clearly tracks SOF and microframes and measures time since the last SOF (frm_nat) and supports isochronous endpoints. Evidence: usbf_pl/usbf_pd capture SOF frame numbers, maintain a microframe index, and expose frm_nat via usbf_rf. However, there is no described mechanism to prebuffer/gate isochronous data by SOF boundaries as required (IN data released only in frame X+1; OUT data processed only after SOF Y+1), nor any mention of synthesizing a missed SOF. Given the detailed module descriptions, this absence is strong counter-evidence. With benefit of doubt, they partially meet the SOF tracking part but not the prebuffering or missed-SOF synthesis requirements.",
+    "key_modules": [
+      "usbf_pl",
+      "usbf_pd",
+      "usbf_rf",
+      "usbf_pe"
+    ]
+  },
+  "group1_item12_Isochronous synchronization types and co": {
+    "done": true,
+    "title": "Isochronous synchronization types and compatibility",
+    "confidence": "9",
+    "explanation": "The core supports isochronous transfer type generically (policy/timing differences for ISO), but there is no implementation or configurability for the USB isochronous synchronization types (Asynchronous, Synchronous, Adaptive). No CSR fields exist to select sync type, no feedback endpoint or frequency feedback/feedforward mechanisms are present, and no SOF-locked/adaptive rate control is implemented. frm_nat provides a SOF timing snapshot for diagnostics only. Therefore this specification point is not covered.",
+    "key_modules": [
+      "usbf_pe",
+      "usbf_rf",
+      "usbf_pl",
+      "usbf_utmi_if"
+    ]
+  },
+  "group1_item13_Isochronous feedback mechanism (asynchro": {
+    "done": true,
+    "title": "Isochronous feedback mechanism (asynchronous sink -> adaptive source)",
+    "confidence": "9",
+    "explanation": "The core supports generic isochronous endpoints and tracks SOF/microframe timing (frm_nat), but there is no RTL that computes or exposes the 24-bit fixed-point Ff value, no formatting in 10.14 (or left-justified 10.10), no defined periodic update via an interrupt endpoint, and no rate-measurement algorithm (e.g., counting Fs\u00b72^P over 2^(10\u2212P) frames). The register file and endpoint logic are generic and do not include an audio feedback endpoint or fields for Ff. Software could potentially use frm_nat to derive Ff, but the RTL does not implement this protocol feature.",
+    "key_modules": [
+      "usbf_pl",
+      "usbf_pe",
+      "usbf_rf",
+      "usbf_top"
+    ]
+  },
+  "group1_item14_Error handling rules (non-isochronous pi": {
+    "done": true,
+    "title": "Error handling rules (non-isochronous pipes)",
+    "confidence": "8",
+    "explanation": "The design supports device-side requirements: (1) STALL handshake generation is explicitly implemented when an endpoint is halted or on unsupported conditions (usbf_pe: \"STALL if endpoint stalled\" and policy for unexpected PIDs). (2) Recovery via standard control requests is supported through EP0 control-transfer handling plus software-accessible per-endpoint CSR fields: the register file exposes stall control and data-toggle control, and the packet engine manages current/next Data PID; firmware receiving CLEAR_FEATURE (ENDPOINT_HALT) on EP0 can clear the halt and reset the toggle to DATA0 using these CSRs (usbf_rf/usbf_ep_rf + usbf_pe). Persistent IRP retirement/pipe halt is host behavior (not implemented in device), but device error responses (NACK/STALL, timeouts, CRC/sequence errors) are present. One caveat: automatic hardware parsing of CLEAR_FEATURE isn\u2019t explicitly stated; the mechanism exists via firmware and CSRs, so this is considered covered.",
+    "key_modules": [
+      "usbf_pe",
+      "usbf_rf",
+      "usbf_ep_rf",
+      "usbf_pl",
+      "usbf_top"
+    ]
+  },
+  "group1_item15_NAK-based flow control": {
+    "done": true,
+    "title": "NAK-based flow control",
+    "confidence": "8",
+    "explanation": "The protocol layer explicitly supports NAK-based flow control. usbf_pe (packet engine) decides handshakes and returns NACK when resources are unavailable: in IDLE it NACKs if no buffers/DMA (covers IN empty and OUT full), and on OUT it NACKs for size-policy violations; it may also return NYET in HS when OUT succeeded but no buffers remain. usbf_pa can emit the NACK PID. NAKs are treated as normal handshakes (not listed as errors in interrupt/events), so repeated NAKs are allowed until buffers become available, aligning with host retry behavior. The \u2018indefinitely\u2019 aspect is not stated verbatim but is strongly implied by the policy and absence of error/limiting mechanisms.",
+    "key_modules": [
+      "usbf_pl",
+      "usbf_pe",
+      "usbf_pa"
+    ]
+  },
+  "group1_item16_Device descriptors and standard/class/ve": {
+    "done": true,
+    "title": "Device descriptors and standard/class/vendor info",
+    "confidence": "8",
+    "explanation": "The core provides EP0 control-transfer mechanics (SETUP/DATA/STATUS), endpoint buffers, and DMA, but there is no RTL implementation of standard USB descriptor storage or a SETUP request parser (e.g., GET_DESCRIPTOR). The FUNCTION_ADDRESS is a CPU-visible register, implying software must handle standard requests and populate EP0 IN data from external memory. Thus, while the hardware enables software to serve descriptors, the RTL itself does not provide the required descriptor sets over EP0.",
+    "key_modules": [
+      "usbf_pl",
+      "usbf_pe",
+      "usbf_rf",
+      "usbf_ep_rf",
+      "usbf_top"
+    ]
+  },
+  "group1_item17_Enumeration and default address behavior": {
+    "done": true,
+    "title": "Enumeration and default address behavior",
+    "confidence": "8",
+    "explanation": "Evidence shows the device responds at the default address (0) on attach/reset and supports re-enumeration: the FUNCTION_ADDRESS register resets to 0 (default address) and is used by the protocol layer to filter tokens by address; EP0 is always present and the packet engine implements control-transfer sequencing (SETUP/DATA/STATUS), enabling descriptor reads and SET_ADDRESS. Reset/attach handling and status (usb_reset/usb_attached) are implemented in the UTMI/link state machine and latched in the register file, allowing re-enumeration at any time. Non-EP0 endpoints require software configuration via per-EP CSR/BUF registers and, when not configured or lacking buffers/DMA, the endpoint engine NAKs/STALLs or does not match, effectively preventing their use until configured. Note: the precise gating until SetConfiguration is software-driven, but the hardware behavior supports it, so this point is given benefit of doubt.",
+    "key_modules": [
+      "usbf_rf",
+      "usbf_pl",
+      "usbf_pe",
+      "usbf_utmi_if",
+      "usbf_utmi_ls",
+      "usbf_top"
+    ]
+  },
+  "group1_item18_Bulk/control/interrupt data sizing behav": {
+    "done": true,
+    "title": "Bulk/control/interrupt data sizing behavior at endpoint",
+    "confidence": "7",
+    "explanation": "The protocol layer implements the required data sizing behavior. For IN endpoints, the packet engine (usbf_pe) transmits size_next = min(buf_size, MaxPacketSize) and supports ZLP, so it naturally sends short packets (< MaxPacketSize) when the remaining payload is smaller than MaxPacketSize, which signals end of a transfer unit. For OUT endpoints, usbf_idma counts received bytes (sizu_c) and usbf_pe enforces size policy: packets larger than MaxPacketSize (to_large) are rejected via NAK/abort when lrg_ok=0, aligning with the requirement to reject larger-than-reported payloads. Packets up to MaxPacketSize are accepted; acceptance of short OUT packets (< MaxPacketSize) is controlled by csr bit sml_ok\u2014assuming software sets this per endpoint type, the device accepts any packet up to MaxPacketSize as required. Minor ambiguity remains on whether error rejection uses STALL vs NAK, but the core does reject/abort oversize packets.",
+    "key_modules": [
+      "usbf_pe",
+      "usbf_idma",
+      "usbf_pa"
+    ]
+  },
+  "group1_item19_Host retry expectations and timeouts": {
+    "done": true,
+    "title": "Host retry expectations and timeouts",
+    "confidence": "9",
+    "explanation": "The protocol layer implements non-isochronous timeouts and consistent device behavior across host retries. In usbf_pe, HS/FS timing windows and explicit timeouts are enforced: IN path waits for host ACK with rx_ack_to, and OUT path waits for data with tx_data_to. Data toggle rules are actively managed via this_dpid/next_dpid; sequence errors (pid_seq_err) are handled in non-iso OUT by ACKing duplicates, ensuring idempotent behavior across host retries. Handshake decisions (ACK/NAK/STALL/NYET) are selected per buffer/policy, and usbf_pa transmits them while usbf_pd validates PIDs/CRCs. While the host\u2019s retry count is host-side, the device-side requirements (consistent behavior across retries and protocol timeouts) are clearly covered.",
+    "key_modules": [
+      "usbf_pl",
+      "usbf_pe",
+      "usbf_pa",
+      "usbf_pd"
+    ]
+  },
+  "group1_item20_Pipes abstraction and endpoint binding": {
+    "done": true,
+    "title": "Pipes abstraction and endpoint binding",
+    "confidence": "9",
+    "explanation": "The design implements per-endpoint (non-EP0) pipes with fixed configuration: direction, transfer type, and MaxPacketSize are programmed in the endpoint CSR and held constant during operation. The protocol/policy engine enforces behavior based on these settings. Stream pipes (bulk/interrupt/isochronous) are treated as opaque payloads moved via DMA with appropriate handshakes and timing, while the control endpoint (EP0) follows the USB-defined message structure (SETUP \u2192 DATA \u2192 STATUS). This matches the specification.",
+    "key_modules": [
+      "usbf_ep_rf",
+      "usbf_rf",
+      "usbf_pe",
+      "usbf_pl",
+      "usbf_top"
+    ]
+  },
+  "group1_item21_Hub functional requirements (for hub RTL": {
+    "done": true,
+    "title": "Hub functional requirements (for hub RTL)",
+    "confidence": "10",
+    "explanation": "The provided RTL implements a single USB device (function) core with one UTMI PHY and endpoint engine, not a USB hub. There is no concept of multiple downstream ports, per-port status/interrupt masking, per-port enable/disable, per-port power switching, LS/FS isolation per port, or a hub repeater. The control/status registers (usbf_rf) expose function-level and per-endpoint fields, not per-port hub registers. While suspend/resume and attach/reset are handled, they apply to the single upstream device link, not multiple downstream ports as required by a hub.",
+    "key_modules": [
+      "usbf_top",
+      "usbf_utmi_if",
+      "usbf_rf",
+      "usbf_pl"
+    ]
+  },
+  "group1_item22_Isochronous optional sample header for r": {
+    "done": true,
+    "title": "Isochronous optional sample header for resynchronization",
+    "confidence": "9",
+    "explanation": "The core supports isochronous transfers at the policy/timing level, but there is no logic to prepend a standard sample header or carry stream-position metadata. The TX packet assembler explicitly builds packets as Data PID + payload + CRC16 without inserting additional header bytes, and no CSR fields control such behavior. While software could place a header in the payload buffer, that is not a hardware implementation of the optional sample header feature.",
+    "key_modules": [
+      "usbf_pa",
+      "usbf_pl",
+      "usbf_pe",
+      "usbf_idma",
+      "usbf_rf"
+    ]
+  },
+  "group2_item0_Bit ordering and packet delimiting": {
+    "done": true,
+    "title": "Bit ordering and packet delimiting",
+    "confidence": "8",
+    "explanation": "The RTL consistently implements LSB-first ordering and relies on UTMI for packet delimiting. Evidence: usbf_pd explicitly states the RX byte stream is LSB-first on the wire and that rx_active spans from SYNC to EOP, resetting CRC at SOP. usbf_crc5 and usbf_crc16 both describe LSB-first processing, and usbf_pa formats/transmits CRC and PIDs consistent with USB LSB-first. Packet start/end (SYNC/EOP) and byte alignment of the first PID are handled by the UTMI interface (usbf_utmi_if), which provides rx_active/valid and TxValid/TxReady abstraction. While the exact phrasing that the last two SYNC bits mark the first PID bit is not spelled out, this is standard UTMI behavior and the design assumes/uses that alignment. No counter-evidence found.",
+    "key_modules": [
+      "usbf_pd",
+      "usbf_pa",
+      "usbf_crc16",
+      "usbf_crc5",
+      "usbf_utmi_if"
+    ]
+  },
+  "group2_item1_PID format and decoding requirements": {
+    "done": true,
+    "title": "PID format and decoding requirements",
+    "confidence": "9",
+    "explanation": "The system implements the 8-bit PID format and required decoding/validation. TX forms PIDs as {~PID4, PID4} (usbf_pa). RX latches the PID, fully classifies it, and checks the 1\u2019s-complement (pid_cks_err) (usbf_pd). The protocol layer filters undefined/non-meaningful PIDs and only acts on valid, addressed, CRC\u2011clean tokens (match_o gating; pid_bad filtering and CRC5 check) (usbf_pl). Endpoints enforce direction/type policy and ignore unsupported directions (e.g., IN-only ignores OUT), with unexpected PIDs flagged but not processed (usbf_pe). System RF exposes pid_cs_err as a latched event (usbf_rf). While the exact \u2018no-response\u2019 behavior on bad PID is implied rather than spelled out, the combination of PID integrity detection and action gating indicates such packets are ignored. Overall, this matches the specification.",
+    "key_modules": [
+      "usbf_pa",
+      "usbf_pd",
+      "usbf_pl",
+      "usbf_pe",
+      "usbf_rf"
+    ]
+  },
+  "group2_item2_Defined PIDs and codes": {
+    "done": true,
+    "title": "Defined PIDs and codes",
+    "confidence": "8",
+    "explanation": "The system implements encode/decode for all relevant USB PIDs. usbf_pd decodes TOKEN (OUT/IN/SOF/SETUP), DATA (DATA0/1/2/MDATA), and HANDSHAKE (ACK/NAK/STALL/NYET) and explicitly notes PRE/ERR share 1100, matching PRE=1100. usbf_pa assembles PIDs as {~PID4, PID4} and can transmit DATA0/1 and handshakes (ACK/NAK/STALL/NYET). usbf_pl filters PRE/ERR and other non-device PIDs (consistent with non\u2011hub devices ignoring PRE). While the exact 4-bit PID codes for all types are not listed verbatim (aside from PRE=1100 being called out), the presence of T_PID_* constants and correct {~PID4,PID4} formation strongly indicates the standard codes (OUT=0001, IN=1001, SOF=0101, SETUP=1101, DATA0=0011, DATA1=1011, ACK=0010, NAK=1010, STALL=1110) are used.",
+    "key_modules": [
+      "usbf_pd",
+      "usbf_pa",
+      "usbf_pl",
+      "usbf_top"
+    ]
+  },
+  "group2_item3_Addressing and endpoint fields": {
+    "done": true,
+    "title": "Addressing and endpoint fields",
+    "confidence": "6",
+    "explanation": "Covered: (1) ADDR is 7 bits with reset default 0 and host-programmable via the FUNCTION_ADDRESS register (usbf_rf word 1 [6:0]). (2) ENDP is 4 bits; tokens decode ENDP[3:0] (usbf_pd). (3) Full match on both ADDR and ENDP is enforced by gating: fsel = (token_fadr==fa) and match_o = (!pid_bad & fsel & match & token_valid & !crc5_err), where match comes from per-EP endpoint-number compare (usbf_pl + usbf_rf/usbf_ep_rf). (4) Uninitialized endpoints are generally ignored because their endpoint-number CSR defaults won\u2019t match tokens for other endpoints, and buffers default to NA with DMA disabled; only the selected, matched EP responds (usbf_ep_rf + usbf_pl). Not fully covered: (a) Aliasing prevention is not enforced\u2014multiple endpoints can be programmed with the same endpoint number; rf resolves by priority muxing the first match, which allows configuration aliasing rather than prohibiting it (usbf_rf/usbf_ep_rf). (b) Low-speed endpoint limit (EP0 plus one additional) is not evidenced; link FSM handles FS/HS and selects FS/LS transceiver, but there is no clear enforcement of the LS endpoint-count limit (usbf_utmi_ls). Benefit of doubt is given for LS limit as it is not disproven here.",
+    "key_modules": [
+      "usbf_rf",
+      "usbf_pd",
+      "usbf_pl",
+      "usbf_ep_rf",
+      "usbf_utmi_ls"
+    ]
+  },
+  "group2_item4_Frame number and SOF reception": {
+    "done": true,
+    "title": "Frame number and SOF reception",
+    "confidence": "9",
+    "explanation": "The design receives and decodes SOF tokens, extracts the 11-bit frame number, and validates token PID and CRC5. usbf_pd decodes TOKENs, exposes frame_no[10:0] specifically for SOF, and flags crc5_err on mismatch. usbf_pl captures the frame number only when pid_SOF and !crc5_err, tracks HS microframes and time since SOF, and exposes frm_nat for diagnostics. usbf_rf makes FRM_NAT readable by software. The 11-bit width implies natural rollover at 0x7FF (not explicitly stated but consistent). FS timing (nominal 1 ms) is consistent with the frm_nat timing and SOF handling; HS microframes are also accounted for. Low-speed devices not receiving SOF is not required here; the core targets FS/HS via UTMI. Benefit of doubt: rollover behavior is inferred from 11-bit handling rather than explicitly documented.",
+    "key_modules": [
+      "usbf_pd",
+      "usbf_pl",
+      "usbf_rf",
+      "usbf_top"
+    ]
+  },
+  "group2_item5_Data field size and bit order": {
+    "done": true,
+    "title": "Data field size and bit order",
+    "confidence": "8",
+    "explanation": "Evidence shows the core uses byte-wide payloads and LSB-first bit ordering throughout. LSB-first is explicitly stated and implemented in usbf_pd (RX path), usbf_crc5/usbf_crc16 (CRC logic assumes USB LSB-first), and usbf_pa (TX formats CRC/payload per USB order). Payload handling is at byte granularity; ZLPs are supported and CRC bytes are stripped/added as complete bytes. Maximum payload per endpoint is governed by a programmable per-EP max packet size field (csr[10:0]) and the policy engine usbf_pe enforces size policies (too small/too large) relative to that setting. While the RTL does not hard-limit to 1023 bytes, the design intent and controls match the spec\u2019s note that actual maxima depend on transfer type; software/CSR programming selects compliant MPS per endpoint. Benefit of doubt: there is no explicit hard cap of 1023 in hardware, but the per-EP MPS mechanism and type-aware policy cover the requirement.",
+    "key_modules": [
+      "usbf_pd",
+      "usbf_crc5",
+      "usbf_crc16",
+      "usbf_pa",
+      "usbf_pe",
+      "usbf_ep_rf",
+      "usbf_idma"
+    ]
+  },
+  "group2_item6_CRCs for tokens and data": {
+    "done": true,
+    "title": "CRCs for tokens and data",
+    "confidence": "8",
+    "explanation": "The core clearly implements CRC5 for tokens and CRC16 for data with the correct USB polynomials. usbf_pd checks token CRC5 over ADDR+ENDP/SOF using usbf_crc5 (x^5 + x^2 + 1) and flags crc5_err on mismatch. usbf_pa generates CRC16 for TX and usbf_pd validates RX CRC16 using a residue check against 0x800D, matching the spec\u2019s residual for x^16 + x^15 + x^2 + 1. CRCs are computed in the protocol layer before any line encoding, while the UTMI PHY handles serialization/bit-stuffing; on RX, bytes are delivered to the core after de-stuffing, so checks occur after de-stuffing. Thus, \u2018bit-stuffing applies to CRC\u2019 is inherently satisfied. However, the implementation and comments consistently rely on USB\u2019s LSB-first bit convention, whereas the provided spec text states \u2018transmitted MSB-first.\u2019 That specific line conflicts with the implementation (and typical USB practice). Giving benefit of doubt for PHY-managed serialization, all other CRC requirements are covered; the MSB/LSB wording is the only mismatch.",
+    "key_modules": [
+      "usbf_pd",
+      "usbf_pa",
+      "usbf_crc5",
+      "usbf_crc16",
+      "usbf_utmi_if"
+    ]
+  },
+  "group2_item7_Token packet format and validity": {
+    "done": true,
+    "title": "Token packet format and validity",
+    "confidence": "8",
+    "explanation": "The design implements USB token structure and handling in the device role. usbf_pd decodes tokens, extracting ADDR[6:0] and ENDP[3:0], and validates CRC5 via usbf_crc5, matching the PID(8)+ADDR(7)+ENDP(4)+CRC5(5) format. As a USB device, it never transmits OUT/IN/SETUP/SOF tokens; usbf_pa only assembles DATA packets and single-byte handshakes (ACK/NAK/STALL/NYET), satisfying the 'only host issues tokens' rule. The packet engine usbf_pe interprets OUT/SETUP tokens to enable RX/DMA for following data and IN tokens to initiate TX/DMA (device transmits), aligning with the semantic mapping. The requirement to ignore token/SOF without EOP after exactly 3 bytes is not spelled out verbatim, but usbf_pd relies on UTMI RxActive/EOP framing, asserts token_valid only after capturing the two token bytes, and flags sequencing errors for malformed packets, so malformed tokens would be ignored in practice. Given this, the module set covers the specification points (with a slight benefit of doubt on the explicit EOP check).",
+    "key_modules": [
+      "usbf_pl",
+      "usbf_pd",
+      "usbf_crc5",
+      "usbf_pe",
+      "usbf_pa"
+    ]
+  },
+  "group2_item8_SOF packet format and timing role": {
+    "done": true,
+    "title": "SOF packet format and timing role",
+    "confidence": "9",
+    "explanation": "The design explicitly decodes SOF tokens as PID(8)+FrameNumber(11)+CRC5(5): usbf_pd extracts frame_no[10:0] for SOF and checks CRC5. usbf_pl uses pid_SOF with token_valid & !crc5_err to latch the frame number and builds frm_nat (microframe index and time since last SOF), thereby providing timing/frame information. usbf_pe excludes SOF from actions that would generate handshakes (IDLE acts on match and not SOF), aligning with 'SOF generates no handshake.' usbf_rf exposes FRM_NAT to software, further evidencing timing/frame tracking.",
+    "key_modules": [
+      "usbf_pl",
+      "usbf_pd",
+      "usbf_pe",
+      "usbf_rf"
+    ]
+  },
+  "group2_item9_Data packet format and PIDs": {
+    "done": true,
+    "title": "Data packet format and PIDs",
+    "confidence": "9",
+    "explanation": "The design explicitly assembles and parses USB data packets as PID (DATA0/1/2/MDATA) + payload + CRC16. TX: usbf_pa emits the Data PID first, streams DATA bytes, then appends two CRC16 bytes computed over the payload (PID not included). RX: usbf_pd latches PID separately, streams payload with CRC16 stripped, and checks CRC16 residue over the DATA field only. Toggle synchronization is handled in usbf_pe, which selects DATA0/DATA1 (and other HS variants) and checks sequence errors. Max packet size is enforced by per\u2011endpoint CSR and policy, supporting zero\u2011length and typical USB sizes.",
+    "key_modules": [
+      "usbf_pa",
+      "usbf_pd",
+      "usbf_pe",
+      "usbf_pl",
+      "usbf_crc16"
+    ]
+  },
+  "group2_item10_Handshake packets and EOP rule": {
+    "done": true,
+    "title": "Handshake packets and EOP rule",
+    "confidence": "9",
+    "explanation": "TX: usbf_pa emits a single-byte handshake PID (ACK/NAK/STALL/NYET) when send_token is asserted, holds it until accepted, and marks that beat as last (tx_valid_last), ensuring EOP after one byte via the UTMI TxValid/TxReady handshake. RX: usbf_pd explicitly recognizes ACK handshakes (pulses token_valid) and flags protocol sequencing errors (seq_err) if a non-token/data PID persists, which effectively treats multi-byte handshakes as invalid/ignored. Flow control/status: usbf_pe selects which handshake (ACK/NAK/STALL/NYET) to send based on endpoint policy, buffer availability, CRC/toggle checks, and timeouts, providing transaction status and flow control. Minor benefit of doubt: while \u2018ignore\u2019 is not stated verbatim, the error signaling (seq_err) and policy handling imply invalid handshakes are not acted upon.",
+    "key_modules": [
+      "usbf_pa",
+      "usbf_pd",
+      "usbf_pe",
+      "usbf_utmi_if"
+    ]
+  },
+  "group2_item11_Handshake semantics: function response t": {
+    "done": true,
+    "title": "Handshake semantics: function response to IN",
+    "confidence": "9",
+    "explanation": "The design implements the required IN-handshake semantics end-to-end: (1) Corrupted token \u2192 no response: usbf_pd detects pid_cs_err/crc5_err and usbf_pl gates actions with match_o requiring !crc5_err, so no transmit occurs on corrupted IN tokens. (2) Endpoint stalled \u2192 STALL: usbf_pe explicitly selects STALL in IDLE when the endpoint is stalled. (3) Cannot send data \u2192 NAK: usbf_pe sends NAK in IDLE when buffers/DMA/data are unavailable (flow control). (4) Else transmit DATAx: on valid IN with data available, usbf_pe starts TX DMA and usbf_pa transmits DATA PID + payload + CRC16 (supports ZLP when appropriate). (5) Host ACK behavior: usbf_pd flags received ACK handshakes; usbf_pe IN2 waits for an ACK and proceeds on ACK, otherwise times out if the host returns no response. All behaviors match the spec; any implicit host-side behavior is observed via ACK or timeout, which is implemented.",
+    "key_modules": [
+      "usbf_pl",
+      "usbf_pe",
+      "usbf_pd",
+      "usbf_pa"
+    ]
+  },
+  "group2_item12_Handshake semantics: host response to IN": {
+    "done": true,
+    "title": "Handshake semantics: host response to IN",
+    "confidence": "9",
+    "explanation": "The RTL treats ACK as the only valid host response after the device transmits IN data and otherwise expects no response. Specifically: (1) usbf_pd detects an ACK handshake and pulses a dedicated event for it; other handshake PIDs (NACK/STALL/NYET) are classified and filtered from normal token handling. (2) usbf_pe (inside usbf_pl) enters an IN2 state after transmitting data and waits explicitly for a host ACK; if no ACK arrives within a speed\u2011dependent timeout, it treats it as no response and exits without updating buffer state, allowing retry on a future IN. This matches the spec semantics: host only ACKs if it accepted error\u2011free data; if it cannot accept data or the data was corrupted, it does not respond (device observes timeout).",
+    "key_modules": [
+      "usbf_pl",
+      "usbf_pe",
+      "usbf_pd"
+    ]
+  },
+  "group2_item13_Handshake semantics: function response t": {
+    "done": true,
+    "title": "Handshake semantics: function response to OUT",
+    "confidence": "9",
+    "explanation": "The packet engine usbf_pe explicitly implements the required OUT handshakes: (1) Corrupted data \u2192 no response: In OUT state, on CRC16 error or RX error, it transitions to IDLE without issuing a handshake. (2) Endpoint stalled \u2192 STALL: On match in IDLE, if stalled, it sends STALL. (3) Sequence mismatch (toggle desync) \u2192 ACK and discard: In OUT2B, if pid_seq_err, it sends ACK and returns to IDLE. (4) Can accept data and error-free \u2192 ACK: Normal success path in OUT2B selects ACK (or NYET in HS, which is allowed). (5) Cannot accept (flow control) \u2192 NAK: When no buffers/DMA or on size-policy violations, it sends NAK. usbf_pd provides crc16_err to drive the corrupted-data path, and usbf_pa transmits the chosen handshake. The 'no response' behavior is inferred from the documented transition to IDLE without send_token, which aligns with USB 2.0 semantics.",
+    "key_modules": [
+      "usbf_pe",
+      "usbf_pd",
+      "usbf_pa"
+    ]
+  },
+  "group2_item14_SETUP transaction handling": {
+    "done": true,
+    "title": "SETUP transaction handling",
+    "confidence": "5",
+    "explanation": "Evidence shows the design treats SETUP as an OUT-like control transfer and enforces DATA0 for the data phase (\"control OUT/SETUP\" path; explicit mention of control EP sequencing with SETUP DATA0). On corrupted DATA (CRC16 error), the OUT state exits to IDLE without sending a handshake, aligning with the \"no handshake if data corrupted\" rule. The endpoint selection/match architecture ensures non-control endpoints will not match a SETUP directed to EP0 and thus effectively ignore it (no response). However, the main FSM\u2019s IDLE decision lists generic STALL and NACK checks before branching to the control OUT/SETUP path. The summary does not explicitly state these are bypassed for SETUP on the control endpoint, whereas the spec requires that SETUP cannot be STALLed or NAKed. This leaves a potential non-compliance; giving benefit of doubt, it is not conclusively disproven from the summary but remains unresolved.",
+    "key_modules": [
+      "usbf_pe",
+      "usbf_pl",
+      "usbf_pd"
+    ]
+  },
+  "group2_item15_Bulk transaction rules": {
+    "done": true,
+    "title": "Bulk transaction rules",
+    "confidence": "9",
+    "explanation": "The core implements the three-phase bulk flow: usbf_pd decodes Token (IN/OUT), usbf_pa assembles Data packets (with DATA0/1 and CRC16) and single-byte Handshakes (ACK/NAK/STALL/NYET), and usbf_pe chooses which to send per policy. Direction semantics are correct: IN maps to TX (memory\u2192USB) and OUT maps to RX (USB\u2192memory) via usbf_pe + usbf_idma. Handshake policy aligns with the spec: STALL when the endpoint is stalled (error requiring host action) and NAK when buffers/DMA are unavailable or size-policy violations occur (temporary inability). Valid accepted OUT data is ACKed (or NYET in HS when no further buffers), while error cases (e.g., CRC16 error or data timeout) explicitly transition to IDLE without emitting a handshake, satisfying 'on errors, no handshake'. Token CRC5 errors are also filtered so no response is generated. Minor benefit-of-doubt: not every possible error path is enumerated in prose, but the provided OUT error handling and token CRC filtering strongly indicate compliance.",
+    "key_modules": [
+      "usbf_pl",
+      "usbf_pe",
+      "usbf_pd",
+      "usbf_pa",
+      "usbf_idma"
+    ]
+  },
+  "group2_item16_Bulk data toggle usage": {
+    "done": true,
+    "title": "Bulk data toggle usage",
+    "confidence": "8",
+    "explanation": "The protocol layer implements bulk data PID toggling and its update rules. In usbf_pe, the expected and next data PIDs (this_dpid/next_dpid) are computed for bulk endpoints, and the FSM updates next_dpid only after success conditions: for IN, it waits for host ACK (state IN2) then updates in UPDATE; for OUT, after accepting a valid data packet and issuing the appropriate handshake, it updates in UPDATE. This matches \u201ctransmitter toggles on ACK\u201d and \u201creceiver toggles on accepting a valid packet.\u201d Handshake generation/consumption is supported by usbf_pa (TX) and usbf_pd (ACK detection). Toggle initialization is supported via control endpoint mechanisms and software-visible fields (uc_dpd in EP CSR via usbf_rf/usbf_ep_rf), and control EP sequencing is present in usbf_pe; while not stated verbatim as \u201cbulk toggle initialized by SETUP,\u201d the hardware provides the path for initialization via control transfers, so this point is given benefit of doubt.",
+    "key_modules": [
+      "usbf_pl",
+      "usbf_pe",
+      "usbf_pa",
+      "usbf_pd",
+      "usbf_rf",
+      "usbf_ep_rf"
+    ]
+  },
+  "group2_item17_Control transfer stages and PIDs": {
+    "done": true,
+    "title": "Control transfer stages and PIDs",
+    "confidence": "8",
+    "explanation": "The protocol layer implements control transfer sequencing and PID rules. usbf_pe explicitly describes control EP sequencing as SETUP \u2192 DATA_IN/DATA_OUT \u2192 STATUS_IN/STATUS_OUT, satisfying the stage ordering and that Status direction is opposite to Data. It also states SETUP uses DATA0. Data PID selection/toggle logic for control data/status is handled, and usbf_pa supports zero-length packets (ZLP) as required for the Status stage. While the text does not verbatim state 'Status uses DATA1' or 'if no Data stage, Status is IN', these are strongly implied by the control-EP sequencing, PID/toggle handling, and ZLP support; giving benefit of doubt for these standard USB behaviors.",
+    "key_modules": [
+      "usbf_pl",
+      "usbf_pe",
+      "usbf_pa",
+      "usbf_pd"
+    ]
+  },
+  "group2_item18_Control transfer status reporting": {
+    "done": true,
+    "title": "Control transfer status reporting",
+    "confidence": "7",
+    "explanation": "The core implements control transfer sequencing and can send ACK/NAK/STALL and zero\u2011length data packets, but key behaviors required by the spec are not met. Counter\u2011evidence: (1) For extra/insufficient data relative to Setup, the packet engine usbf_pe explicitly responds with NAK on to_small/to_large conditions rather than STALL, contradicting the spec requirement to STALL on length mismatch for control transfers. (2) For control\u2011write success, the spec requires the function to return a zero\u2011length data packet as the Status stage; in the RTL, send_zero_length is only asserted when max_pl_sz==0 (an edge case unrelated to control Status), with no explicit control\u2011status ZLP policy. (3) The behavior that if the Data stage STALLs no Status stage follows is not described. While NAK as busy and general STALL support exist, these gaps and the explicit NAK on size mismatch indicate the implementation does not satisfy the specified control transfer status reporting.",
+    "key_modules": [
+      "usbf_pe",
+      "usbf_pl",
+      "usbf_pa"
+    ]
+  },
+  "group2_item19_Control transfer: last IN ACK corruption": {
+    "done": true,
+    "title": "Control transfer: last IN ACK corruption handling",
+    "confidence": "7",
+    "explanation": "The design implements the control-write side behavior: if an OUT is retried (e.g., because the host\u2019s ACK was corrupted), the device recognizes the duplicate via pid_seq_err and still responds with ACK, matching the spec\u2019s requirement for corrupted ACK on OUT. However, for control reads the FSM waits in IN2 explicitly for a host ACK; on timeout it returns to IDLE, and there is no path that interprets a subsequent opposite-direction OUT/SETUP as implicit proof of a successful last IN. The description even notes preemption/abort on a new token while not IDLE. Thus, the \u2018direction toggle as proof\u2019 behavior for a corrupted ACK on the last IN is not described. Given only the provided descriptions, this point fails while the duplicate-OUT handling passes.",
+    "key_modules": [
+      "usbf_pe",
+      "usbf_pd"
+    ]
+  },
+  "group2_item20_Interrupt transaction rules": {
+    "done": true,
+    "title": "Interrupt transaction rules",
+    "confidence": "8",
+    "explanation": "The core implements most interrupt IN transaction behaviors: it supports IN-only operation for device-to-host transfers, returns DATAx when data is pending, NAK when no data/buffers are available, and STALL when the endpoint is stalled. It explicitly waits for and detects host ACKs after IN data (and times out if no handshake), and it manages data PID toggles and sequence checking. However, the specific 'rate feedback mode' requirement that toggles change after each data regardless of handshake is not met: the toggle/uc_dpd update occurs in UPDATE/UPDATE2, which is only reached for non-iso IN after an ACK (IN2\u2192UPDATE); on timeout (no handshake) it returns to IDLE without updating the toggle. Thus the spec is satisfied except for the rate-feedback toggle rule, which is contradicted by the described behavior.",
+    "key_modules": [
+      "usbf_pe",
+      "usbf_pl",
+      "usbf_pd",
+      "usbf_pa",
+      "usbf_ep_rf"
+    ]
+  },
+  "group2_item21_Isochronous transaction rules": {
+    "done": true,
+    "title": "Isochronous transaction rules",
+    "confidence": "8",
+    "explanation": "Covered: The packet engine implements ISO as token+data only with no handshakes and thus no retry (IN path skips ACK wait and goes directly to UPDATE; OUT path records status and updates without handshake). It also treats data PID sequence errors as status-only for ISO, effectively not enforcing toggle sequencing or PID-based acceptance (receiver ignores data PID for acceptance). Not fully matched: The spec\u2019s statement that Data PID is always DATA0 is not strictly enforced here; the engine explicitly supports ISO rules including HS variants (MDATA/DATA2), so Data PID is not always DATA0. Benefit of doubt: For FS ISO, always DATA0 is typical, but this is not explicitly stated in the provided text.",
+    "key_modules": [
+      "usbf_pe",
+      "usbf_pl"
+    ]
+  },
+  "group2_item22_Data toggle synchronization and retry me": {
+    "done": true,
+    "title": "Data toggle synchronization and retry mechanism",
+    "confidence": "8.5",
+    "explanation": "The protocol layer (usbf_pl) and its packet engine (usbf_pe) implement data PID/toggle control and retry behavior consistent with the spec: control transfers are synchronized via SETUP (SETUP uses DATA0; subsequent control IN/OUT alternate), bulk/interrupt toggle handling is present with uc_dpd/next_dpid management, the transmitter toggles only on receiving ACK (IN\u2192IN2 waits for ACK; only on ACK does UPDATE write next_dpid), and the receiver toggles only upon error\u2011free, matching DATAx (OUT path goes to UPDATE only when CRC is clean, size policy passes, and no pid_seq_err). On NAK/STALL or timeout, no toggle occurs (IN2 times out without UPDATE; retransmit keeps same DATA PID). On corrupted data (CRC16 error), OUT aborts without UPDATE (no toggle). Duplicate OUTs (PID mismatch) are ACKed but do not go to UPDATE (explicit pid_seq_err branch), matching \u201cdiscard duplicate and ACK.\u201d Corrupted ACK is handled implicitly: without ACK the device does not toggle and will retry the same DATAx; upon the eventual valid ACK, it toggles. Minor ambiguity remains on the exact mechanism for initial bulk/interrupt sync beyond control/setup/reset, but overall behavior matches the spec.",
+    "key_modules": [
+      "usbf_pl",
+      "usbf_pe",
+      "usbf_pd",
+      "usbf_pa",
+      "usbf_ep_rf"
+    ]
+  },
+  "group2_item23_Retry constraints on retransmitted data ": {
+    "done": true,
+    "title": "Retry constraints on retransmitted data length",
+    "confidence": "8",
+    "explanation": "The protocol layer ensures retried packets keep identical length and avoids sending malformed/mismatched packets. For IN transfers, usbf_pe waits for host ACK (IN\u2192IN2); only on ACK does it advance descriptors/toggles (UPDATE). On timeout/no-ACK it returns to IDLE without updating state, so the next retry reuses the same buffer, data PID, and size\u2014thus identical length. The TX path fixes the packet byte count via usbf_idma\u2019s size counter and usbf_pa\u2019s framing, always appending CRC16. If data cannot be provided (no buffer/DMA space, size-policy violations), usbf_pe chooses a handshake (NACK/STALL/NYET) rather than starting a DATA packet, preventing underrun or CRC-bad emissions. While the design does not explicitly inject a bit-stuff violation to abort mid-packet, it meets the intent by never transmitting a mismatched/CRC-bad packet and by using detectable handshakes when data of the correct length cannot be sent.",
+    "key_modules": [
+      "usbf_pe",
+      "usbf_pa",
+      "usbf_idma"
+    ]
+  },
+  "group2_item24_Low-speed transaction behavior (device-l": {
+    "done": true,
+    "title": "Low-speed transaction behavior (device-level)",
+    "confidence": "8",
+    "explanation": "The core implements FS/HS operation (no explicit low-speed mode or LS timing) and supports bulk and isochronous transfers in addition to control/interrupt, contradicting LS-only transfer types and 8-byte max payload. It also decodes and uses SOF for timing, whereas LS devices do not receive SOF. It does correctly ignore PRE PID preambles. Because key LS constraints are not enforced/implemented, the specification is not covered.",
+    "key_modules": [
+      "usbf_utmi_ls",
+      "usbf_pl",
+      "usbf_pe",
+      "usbf_pd"
+    ]
+  },
+  "group2_item25_Packet error detection and receiver acti": {
+    "done": true,
+    "title": "Packet error detection and receiver actions",
+    "confidence": "9",
+    "explanation": "The system detects all listed RX errors and applies the required receiver actions. Bit\u2011stuff/PHY violations are reported via UTMI RxError and propagated as rx_err (usbf_utmi_if \u2192 usbf_pd), which causes the RX state machines to abort and not commit data. PID integrity is checked (pid_cks_err in usbf_pd) and such packets are not treated as valid, effectively ignored. Token CRC5 is checked (crc5_err in usbf_pd), and the protocol layer gates any action on tokens with !crc5_err and correct function address (match_o in usbf_pl), so bad tokens are ignored. SOF frame number updates occur only when pid_SOF and !crc5_err (frame_no_we in usbf_pl), so bad SOF CRC results in ignoring the frame number. Data CRC16 is computed (crc16_err in usbf_pd); on CRC16 error or rx_err, the packet engine aborts the OUT transfer without updating/releasing descriptors (usbf_pe), thereby discarding corrupted data. RF/event latches (usbf_rf) capture pid_cs_err/crc5_err/rx_err as errors without inducing functional actions, aligning with 'ignore/discard' behavior. This matches the spec that, except for SOF timing capture, corrupted packets are ignored and associated data/fields discarded.",
+    "key_modules": [
+      "usbf_pd",
+      "usbf_pl",
+      "usbf_pe",
+      "usbf_utmi_if",
+      "usbf_rf"
+    ]
+  },
+  "group2_item26_Bus turnaround timing and timeouts": {
+    "done": true,
+    "title": "Bus turnaround timing and timeouts",
+    "confidence": "5",
+    "explanation": "The design implements device-side turnaround-related timeouts, but the exact 16\u201318 bit-time requirements and SE0\u2192IDLE (end of EOP) to next SOP measurement are not explicitly evidenced. Specifically, usbf_pe implements two timers: (1) tx_data_to during OUT (token\u2192data wait) and (2) rx_ack_to after IN (data\u2192handshake wait), with HS/FS-specific thresholds (HS=22, FS=36). usbf_pd provides the packet boundary events (token_valid for token completion/ACK seen, rx_data_done for end-of-data) that can bound these intervals, and usbf_utmi_if cleans UTMI signals. However, the documentation does not show these counters are keyed precisely to SE0\u2192IDLE and do not prove the thresholds map to 16\u201318 bit times. The host-side rule (waiting \u226518 bit times before the next token when indicating an error) is not verifiable here because this is a device core. Given the presence of device timeouts matching the functional intent but lacking proof of the exact bit-time constraints or SE0\u2192IDLE anchoring, coverage is partial.",
+    "key_modules": [
+      "usbf_pe",
+      "usbf_pl",
+      "usbf_pd",
+      "usbf_utmi_if"
+    ]
+  },
+  "group2_item27_False EOP handling": {
+    "done": true,
+    "title": "False EOP handling",
+    "confidence": "8",
+    "explanation": "The device-side behavior for false EOP/corrupted data is implemented. The RX decoder (usbf_pd) flags truncated packets as seq_err and detects CRC16 failure (crc16_err) at end-of-data. The policy engine (usbf_pe) reacts to corrupted OUT data by issuing no handshake and returning to IDLE (await next token). Corrupted tokens (CRC5 error) are filtered so no response is generated. This matches the spec\u2019s device requirement. The host-side timing rule (waiting 16 bit times) is not applicable to this device core; no counter-evidence found.",
+    "key_modules": [
+      "usbf_pd",
+      "usbf_pe",
+      "usbf_pl"
+    ]
+  },
+  "group2_item28_Device visible states and effects": {
+    "done": true,
+    "title": "Device visible states and effects",
+    "confidence": "6",
+    "explanation": "Evidence shows the design covers several device-visible states: Attached is implemented (usb_attached after 100 ms debounce) and exposed to software; Suspended is implemented (usb_suspend, SuspendM control, resume request/clear); Default after reset (FUNCTION_ADDRESS resets to 0) and Addressed (programmable function address used for token filtering) are supported. However, a distinct Powered state is not explicitly tracked beyond use of usb_vbus as a POR/attach aid, and there is no explicit global Configured state or SET_CONFIGURATION latch in hardware. Configuration is likely realized via firmware programming of per-endpoint CSRs (enable/disable/stall) rather than a single hardware state, so whether the function is \u2018usable\u2019 only in Configured relies on software policy. Given this, the implementation partially satisfies the specification, with Configured and Powered being implicit/firmware-managed rather than explicit hardware states.",
+    "key_modules": [
+      "usbf_utmi_ls",
+      "usbf_rf",
+      "usbf_pl",
+      "usbf_pe",
+      "usbf_utmi_if",
+      "usbf_top"
+    ]
+  },
+  "group2_item29_Suspend/resume and remote wakeup": {
+    "done": true,
+    "title": "Suspend/resume and remote wakeup",
+    "confidence": "8",
+    "explanation": "The design implements auto-suspend after inactivity and resume on bus activity via the UTMI link FSM. usbf_utmi_ls enters SUSPEND after >3 ms idle, retains state (no resets to address/config on suspend), and exits on host bus activity (K state resume) or reset. Remote wake is supported: a device-initiated resume path exists (resume_req from top/rf), with correct wake and resume signaling timing (idle >5 ms before request, drive K >=1 ms). The top exposes suspend status and provides both external and software-triggered remote wake requests. While explicit hardware gating for host-enable of remote wake isn\u2019t shown, control EP support is present, so software/EP0 can report and honor host enable/disable; giving benefit of doubt on that point.",
+    "key_modules": [
+      "usbf_utmi_ls",
+      "usbf_utmi_if",
+      "usbf_top",
+      "usbf_rf",
+      "usbf_pl",
+      "usbf_pe"
+    ]
+  },
+  "group2_item30_Enumeration sequence (host-driven) and d": {
+    "done": true,
+    "title": "Enumeration sequence (host-driven) and device expectations",
+    "confidence": "6",
+    "explanation": "Covered: The core detects attach and reset (usbf_utmi_if/usbf_utmi_ls), starts at default address 0 (FUNCTION_ADDRESS reset in usbf_rf) and only answers when the token address matches the function address (address filtering in usbf_pl). EP0 control-transfer sequencing exists in the policy engine, and endpoints\u2019 type/max-packet-size are configurable (per-EP CSRs), allowing the device to respond to descriptor reads and to adopt characteristics after configuration when software programs them. Not explicitly covered/enforced: There is no RTL handling of standard requests (GET_DESCRIPTOR/SET_ADDRESS/SET_CONFIGURATION) nor explicit enforcement that the function address update is deferred until after the status stage of SET_ADDRESS; FUNCTION_ADDRESS is a software-written register, and its correct timing appears to be firmware-dependent. Likewise, reading configurations and activating a configuration is not implemented as an RTL protocol sequence but is supported via the register/buffer model. Therefore, the design supports the mechanics needed for enumeration but does not by itself guarantee the full spec-mandated enumeration semantics.",
+    "key_modules": [
+      "usbf_utmi_if",
+      "usbf_utmi_ls",
+      "usbf_rf",
+      "usbf_pl",
+      "usbf_pe"
+    ]
+  },
+  "group2_item31_Dynamic attachment/removal behavior": {
+    "done": true,
+    "title": "Dynamic attachment/removal behavior",
+    "confidence": "8",
+    "explanation": "The device core implements attach/detach detection and reset/suspend behavior consistent with the spec. usbf_utmi_ls debounces and flags attach (usb_attached) and detects detach, reset (SE0 > 2.5 \u03bcs), and suspend/resume transitions; usbf_rf latches attach/detach as RF/system events for software visibility, covering state-change reporting on the device side. After reset, FUNCTION_ADDRESS defaults to 0 (usbf_rf) and the protocol layer filters tokens by that address (usbf_pl), so the device responds at the default address. Endpoints/registers come up in default/unconfigured state and require software configuration (usbf_ep_rf), and the core is not suspended initially (usb_suspend only after >3 ms idle). On removal, the core exposes a detach event; while host-side port disable is outside the device\u2019s control, the provided signals allow system software to act accordingly. Minor caveat: hub reporting is a host/hub function, but the device provides sufficient state change indications.",
+    "key_modules": [
+      "usbf_utmi_if",
+      "usbf_utmi_ls",
+      "usbf_rf",
+      "usbf_pl",
+      "usbf_ep_rf"
+    ]
+  },
+  "group2_item32_Configuration, interfaces, alternate set": {
+    "done": true,
+    "title": "Configuration, interfaces, alternate settings",
+    "confidence": "3",
+    "explanation": "Evidence shows the core supports control transfers on EP0 (enabling host-driven configuration flows via software) and provides the function address register, so a system using this core can be configured by the host. However, there is no explicit RTL support for tracking configuration numbers, multiple interfaces, or alternate settings via SET_INTERFACE, nor clear logic that resets endpoint status/data toggles to DATA0 upon configuration or alt-setting changes (only bus reset handling is explicit). These missing parts may be handled by software using the provided CSRs, but are not demonstrated in the RTL descriptions.",
+    "key_modules": [
+      "usbf_pl",
+      "usbf_pe",
+      "usbf_rf",
+      "usbf_ep_rf"
+    ]
+  },
+  "group2_item33_Transfer types per endpoint and pipe mod": {
+    "done": true,
+    "title": "Transfer types per endpoint and pipe mode",
+    "confidence": "8",
+    "explanation": "The core supports configuring each endpoint with a single transfer type and enforces per-endpoint policy. Evidence: usbf_rf exposes EPx_CSR fields including transfer type (control/isochronous/interrupt/bulk) and direction (IN/OUT); usbf_pe consumes these CSR fields and implements control (SETUP/DATA/STATUS), iso, and bulk behaviors, including handshake selection (ACK/NAK/STALL/NYET), data toggle management, and sequence-error handling. SOF/microframe timing is captured in usbf_pl (frm_nat) for synchronization. While interrupt transfers aren\u2019t detailed separately in usbf_pe\u2019s narrative, the CSR includes \u2018interrupt\u2019 and device-side handling is typically bulk-like; given this and no counter-evidence, this point is granted benefit of doubt. Unidirectional stream vs. bidirectional message mapping is covered by IN/OUT-only endpoints versus the bidirectional control endpoint.",
+    "key_modules": [
+      "usbf_rf",
+      "usbf_pe",
+      "usbf_pl",
+      "usbf_pa",
+      "usbf_pd",
+      "usbf_top"
+    ]
+  },
+  "group2_item34_Standard device requests: control transf": {
+    "done": true,
+    "title": "Standard device requests: control transfer handling",
+    "confidence": "7",
+    "explanation": "Counter-evidence indicates the RTL does not implement the mandatory EP0 standard request behaviors in hardware. While usbf_pe includes a control-transfer sequencer (SETUP/DATA/STATUS) and the system can assert STALL handshakes, there is no decoder for bmRequestType/bRequest/wValue to implement standard requests on EP0, nor any explicit logic to auto-STALL unsupported requests. Critically, the described policy says 'If stalled \u2192 STALL' without a SETUP exception, which conflicts with the requirement to accept SETUP even while stalled. There is also no stated behavior that CLEAR_FEATURE(ENDPOINT_STALL) reinitializes the data toggle to DATA0, and no mechanism noted to reset the device when the default pipe becomes unusable. Some aspects could, in principle, be implemented by firmware via the register file (e.g., FUNCTION_ADDRESS and CSR stall bits), but the RTL description does not claim or show these mandated behaviors autonomously.",
+    "key_modules": [
+      "usbf_pe",
+      "usbf_rf",
+      "usbf_pl",
+      "usbf_pd"
+    ]
+  },
+  "group2_item35_Standard requests list and key semantics": {
+    "done": true,
+    "title": "Standard requests list and key semantics",
+    "confidence": "9",
+    "explanation": "The RTL implements link/packet handling, endpoint policy, and generic control-transfer staging (SETUP/DATA/STATUS), but there is no evidence of decoding or servicing the USB standard requests (GET_STATUS, CLEAR_FEATURE, SET_FEATURE, SET_ADDRESS, GET_DESCRIPTOR, etc.) nor the specific semantics called out. Function address is a CPU-visible register (FUNCTION_ADDRESS) written via Wishbone, not automatically applied after the status stage of SET_ADDRESS. There is no descriptor ROM or logic to return a full configuration tree for GET_DESCRIPTOR, nor logic to assemble GET_STATUS fields (self/bus-power, remote-wakeup, endpoint STALL status). While EP0 control sequencing exists, it\u2019s generic and appears intended for firmware to implement request handling using the buffer memory and CSRs. Benefit of doubt: it is possible firmware running on the host CPU side implements these semantics via the exposed registers, but the RTL itself does not.",
+    "key_modules": [
+      "usbf_top",
+      "usbf_pl",
+      "usbf_pe",
+      "usbf_rf",
+      "usbf_pd"
+    ]
+  },
+  "group2_item36_Feature selectors and effects": {
+    "done": true,
+    "title": "Feature selectors and effects",
+    "confidence": "7",
+    "explanation": "Counter-evidence indicates the DEVICE_REMOTE_WAKEUP enable feature is not present: the design exposes a one-shot remote-wakeup request (resume_req_i and rf_resume_req) but no enable bit that gates this request, nor a statement that it resets to disabled on device reset (usbf_rf MAIN_CSR write bit[5], usbf_top latch, usbf_utmi_if/usbf_utmi_ls consume resume_req without enable gating). For ENDPOINT_STALL, while endpoints can be stalled (CSR indicates stall and usbf_pe will send STALL), there is no explicit behavior that clearing stall also resets the data toggle to DATA0. Finally, there is no explicit handling described for SET_FEATURE/CLEAR_FEATURE applicability by recipient (device vs endpoint) in control request processing, only generic control EP sequencing. Given these, the specified feature selectors and their effects are not covered.",
+    "key_modules": [
+      "usbf_rf",
+      "usbf_top",
+      "usbf_utmi_if",
+      "usbf_utmi_ls",
+      "usbf_pe",
+      "usbf_ep_rf"
+    ]
+  },
+  "group2_item37_Device descriptor requirements": {
+    "done": true,
+    "title": "Device descriptor requirements",
+    "confidence": "8",
+    "explanation": "The RTL implements control-transfer mechanics and endpoint policy but does not store, generate, or serve the USB device descriptor, nor does it decode standard requests like GET_DESCRIPTOR. There is no logic describing or enforcing the device descriptor fields (bcdUSB, class/subclass/protocol, idVendor, idProduct, bcdDevice, iManufacturer/iProduct/iSerialNumber, bNumConfigurations) or ensuring there is exactly one device descriptor. EP0\u2019s bMaxPacketSize0 is exposed only as a generic max packet size field in endpoint CSR without enforcement of the allowed {8,16,32,64} set, and EP0-specific characteristics fixed by the spec are not described. This strongly indicates descriptor handling is intended for firmware/software over Wishbone rather than RTL.",
+    "key_modules": [
+      "usbf_top",
+      "usbf_rf",
+      "usbf_pl",
+      "usbf_pe"
+    ]
+  },
+  "group2_item38_Configuration descriptor requirements": {
+    "done": true,
+    "title": "Configuration descriptor requirements",
+    "confidence": "8",
+    "explanation": "The RTL core provides transport and control-transfer mechanisms (EP0 always present, control transfer sequencing in usbf_pe, buffer memory via usbf_pl/usbf_idma, and CPU-accessible registers in usbf_rf), but there is no logic or storage implementing USB configuration descriptors or standard request decoding (GET_DESCRIPTOR(Configuration), SET_CONFIGURATION) and no fields like wTotalLength, bNumInterfaces, bConfigurationValue, iConfiguration, bmAttributes, or MaxPower defined in the hardware. Any response that returns the configuration descriptor and all subordinate descriptors would need to be constructed and served by firmware/software using EP0 buffers. Giving benefit of doubt: while the transport supports sending such data, the content requirements from the spec are not implemented in RTL.",
+    "key_modules": [
+      "usbf_top",
+      "usbf_pl",
+      "usbf_pe",
+      "usbf_rf",
+      "usbf_pd",
+      "usbf_pa"
+    ]
+  },
+  "group2_item39_Interface descriptor requirements and al": {
+    "done": true,
+    "title": "Interface descriptor requirements and alternate settings",
+    "confidence": "9",
+    "explanation": "The RTL implements the USB link/protocol engine, endpoint policy, DMA, and a register file, but it does not define or manage USB interface descriptors (bInterfaceNumber, bAlternateSetting, bNumEndpoints, class/subclass/protocol, iInterface) nor does it implement handling of SET_INTERFACE or GET_INTERFACE. Control-transfer sequencing is present generically, suggesting such standard requests and descriptor contents are expected to be handled by firmware/software over EP0, not by this RTL.",
+    "key_modules": [
+      "usbf_top",
+      "usbf_pl",
+      "usbf_pe",
+      "usbf_rf"
+    ]
+  },
+  "group2_item40_Endpoint descriptor requirements": {
+    "done": true,
+    "title": "Endpoint descriptor requirements",
+    "confidence": "7",
+    "explanation": "The core provides per-endpoint fields that map to descriptor items and uses them in the policy engine: endpoint number (csr[21:18]) and direction (csr[27:26]) align with bEndpointAddress; transfer type is encoded in EP CSR and described as control/iso/bulk/interrupt; wMaxPacketSize is csr[10:0] and is enforced for sizing, too-small/too-large decisions, and policy. bInterval is not represented in hardware, which is reasonable since it is host/descriptor-driven (ignored for bulk/control; for iso must be 1 and for interrupt 1\u2013255). There is no counter-evidence contradicting these mappings. While explicit interrupt-type handling is less spelled out in the detailed usbf_pe text, the usbf_rf description states transfer type includes interrupt; thus given benefit of doubt, coverage is considered met.",
+    "key_modules": [
+      "usbf_rf",
+      "usbf_ep_rf",
+      "usbf_pe",
+      "usbf_pl",
+      "usbf_top"
+    ]
+  },
+  "group2_item41_String descriptors and LANGID handling": {
+    "done": true,
+    "title": "String descriptors and LANGID handling",
+    "confidence": "8",
+    "explanation": "Across usbf_top and its submodules there is no implementation of USB descriptor storage or specific handling for string descriptors or LANGID index 0. The RTL handles control transfer sequencing generically (SETUP/DATA/STATUS) and endpoint policy, but there is no logic for GET_DESCRIPTOR parsing, emitting UNICODE string descriptors, returning the LANGID array at index 0, or validating/normalizing the length field. No descriptor ROM/CSR fields or checks are present. It is possible such behavior is intended to be handled by firmware/software via EP0 buffers, but this is not implemented or enforced in the RTL shown.",
+    "key_modules": [
+      "usbf_top",
+      "usbf_pl",
+      "usbf_pe",
+      "usbf_rf"
+    ]
+  },
+  "group2_item42_SYNCH_FRAME request for isochronous endp": {
+    "done": true,
+    "title": "SYNCH_FRAME request for isochronous endpoints",
+    "confidence": "8",
+    "explanation": "Across the provided modules, there is no explicit handling of the standard SYNCH_FRAME control request, no per-isochronous-endpoint storage for a starting frame number, and no mechanism to set/report it. The only frame-related item is FRM_NAT (a global SOF/microframe timing snapshot) used for diagnostics, not per-endpoint synchronization. Control EP handling is generic (sequencing only) and does not decode specific standard requests like SYNCH_FRAME. There is also no logic enforcing a STALL on non-isochronous endpoints specifically for this request, nor any reset of a starting-frame state on device reset or SetConfiguration/SetInterface. While firmware could, in principle, implement SYNCH_FRAME using EP0 and the available timing snapshot, that is not evidenced in the RTL; thus the requirement is not covered by this hardware design.",
+    "key_modules": [
+      "usbf_pl",
+      "usbf_pe",
+      "usbf_rf",
+      "usbf_ep_rf",
+      "usbf_top"
+    ]
+  }
+}

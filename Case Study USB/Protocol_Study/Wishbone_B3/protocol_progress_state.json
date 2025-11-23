@@ -1,0 +1,505 @@
+{
+  "group1_item0_Active-high logic levels": {
+    "done": true,
+    "title": "Active-high logic levels",
+    "confidence": "8",
+    "explanation": "The Wishbone interface in this design uses active-high logic for its key signals. In usbf_wb, the Wishbone request is asserted with (wb_stb_i & wb_cyc_i), wb_we is positive-true for writes, and wb_ack_o is generated as a positive one-shot pulse\u2014clear evidence the Wishbone-side signals are active-high at the boundary. While some internal modules note an active-low reset input (rst), the top-level Wishbone handshake signals (stb, cyc, we, ack) remain active-high. The polarity of a Wishbone reset signal is not explicitly defined at the top boundary here; given that ambiguity and the rule\u2019s focus on interface signals, we give the benefit of doubt and consider the requirement met.",
+    "key_modules": [
+      "usbf_wb",
+      "usbf_top"
+    ]
+  },
+  "group1_item1_Synchronous design and timing model": {
+    "done": true,
+    "title": "Synchronous design and timing model",
+    "confidence": "9",
+    "explanation": "The specification requires a single-clock synchronous design where all outputs are registered on the rising edge of CLK_I and inputs meet setup to that same edge. The usbf_top system explicitly uses two clock domains (phy_clk_pad_i and clk_i), with major logic (UTMI interface, protocol/memory arbiter) in the PHY clock domain and Wishbone/RF in clk_i, plus multiple CDC bridges. This contradicts the single-clock requirement and the rule that all outputs be registered on CLK_I. Therefore, the design does not satisfy this specification point.",
+    "key_modules": [
+      "usbf_top",
+      "usbf_utmi_if",
+      "usbf_mem_arb",
+      "usbf_rf",
+      "usbf_wb"
+    ]
+  },
+  "group1_item2_Clock signal requirements": {
+    "done": true,
+    "title": "Clock signal requirements",
+    "confidence": "9",
+    "explanation": "The RTL treats clk_i and phy_clk_pad_i as external inputs and does not generate, gate, monitor, or enforce clock duty-cycle or gating behavior. There is no logic ensuring a 40\u201360% duty cycle, no monitoring for clean/monotonic edges, and no gating that guarantees stop-low. The design includes CDC handling and power/link controls (e.g., SuspendM) but these are not clock gating. Therefore, this specification requirement is not covered by the module/system as implemented. This is conclusively counter-evidenced by the top-level and submodule descriptions that show clocks are only consumed, not controlled.",
+    "key_modules": [
+      "usbf_top",
+      "usbf_utmi_if",
+      "usbf_utmi_ls",
+      "usbf_wb",
+      "usbf_mem_arb",
+      "usbf_rf",
+      "usbf_pl"
+    ]
+  },
+  "group1_item3_Reset behavior": {
+    "done": true,
+    "title": "Reset behavior",
+    "confidence": "6",
+    "explanation": "The Wishbone interface here is a slave (usbf_wb). The master-specific rule (negating STB_O/CYC_O after reset) is not applicable. For the general reset rules (initialize on the rising CLK_I edge after RST_I assertion and remain initialized until the rising edge after negation), the provided description shows counter-evidence: usbf_wb\u2019s reset is applied in the phy_clk domain (not the Wishbone clk_i/wb_clk domain), and it explicitly states only the FSM state register is reset while other regs (including the wb_clk-domain ack generator) rely on defaulting. There is no explicit guarantee that Wishbone-facing outputs/ack logic are initialized in the wb_clk domain per RULEs 3.00/3.15. Therefore, the required reset behavior for the Wishbone interface is not clearly implemented. Benefit of doubt: if unshown RTL explicitly resets the wb_clk-domain ack flops, it could meet the rule, but the provided documentation suggests otherwise.",
+    "key_modules": [
+      "usbf_wb",
+      "usbf_top"
+    ]
+  },
+  "group1_item4_Required MASTER signals": {
+    "done": true,
+    "title": "Required MASTER signals",
+    "confidence": "9",
+    "explanation": "The design implements a Wishbone SLAVE interface, not a MASTER. Evidence: usbf_wb is explicitly described as a Wishbone slave using wb_stb_i, wb_cyc_i inputs and generating wb_ack_o. A Wishbone MASTER would drive CYC_O and STB_O and consume ACK_I, which is not present in any module. Other internal buses (e.g., usbf_mem_arb) are not Wishbone. Therefore, the mandatory MASTER signals (ACK_I, CLK_I, CYC_O, RST_I, STB_O) are not implemented by this system.",
+    "key_modules": [
+      "usbf_wb",
+      "usbf_top"
+    ]
+  },
+  "group1_item5_Required SLAVE signals": {
+    "done": true,
+    "title": "Required SLAVE signals",
+    "confidence": "9",
+    "explanation": "The top-level usbf_top exposes Wishbone slave signals clk_i (CLK_I), rst_i (RST_I), wb_stb_i (STB_I), wb_cyc_i (CYC_I), and wb_ack_o (ACK_O). The submodule usbf_wb is explicitly a Wishbone slave that consumes wb_stb_i & wb_cyc_i and generates wb_ack_o. This satisfies the mandatory SLAVE signals per the specification. Minor note: polarity/details of RST are described as active-low in usbf_wb, but the presence of the required reset signal is clear.",
+    "key_modules": [
+      "usbf_top",
+      "usbf_wb"
+    ]
+  },
+  "group1_item6_MASTER signal semantics": {
+    "done": true,
+    "title": "MASTER signal semantics",
+    "confidence": "9",
+    "explanation": "The design implements a Wishbone slave, not a master. The usbf_wb module explicitly consumes wb_addr_i, wb_data_i, wb_we_i, wb_stb_i, wb_cyc_i and produces wb_ack_o as a slave. There are no master-side outputs such as ADR_O, DAT_O, WE_O, SEL_O, STB_O, CYC_O, LOCK_O, TGA_O, or TGC_O, nor master-side inputs ACK_I/ERR_I/RTY_I. Other modules use a custom internal memory arbiter interface (mreq/mack) and do not implement Wishbone master semantics. Hence the specified MASTER signal semantics are not covered. Benefit of doubt: none of the provided submodules indicates any Wishbone master behavior.",
+    "key_modules": [
+      "usbf_top",
+      "usbf_wb"
+    ]
+  },
+  "group1_item7_SLAVE signal semantics": {
+    "done": true,
+    "title": "SLAVE signal semantics",
+    "confidence": "8",
+    "explanation": "The design implements a Wishbone slave with ADR_I, DAT_I, DAT_O, WE_I, STB_I, CYC_I and terminates transfers with ACK_O (one of ACK/ERR/RTY). However, it explicitly does not implement byte enables (SEL_I) and does not expose LOCK_I; ERR_O/RTY_O are also not provided. Thus, core slave semantics are covered but SEL/LOCK/error-retry aspects are not.",
+    "key_modules": [
+      "usbf_wb",
+      "usbf_top"
+    ]
+  },
+  "group1_item8_CYC_O usage and timing": {
+    "done": true,
+    "title": "CYC_O usage and timing",
+    "confidence": "8",
+    "explanation": "The design includes a Wishbone slave (usbf_wb) that only responds when both CYC_I and STB_I are asserted, ensuring no response when CYC_I is low (meets RULE 3.30). There is no Wishbone master in this RTL, so the master CYC_O timing rule (RULE 3.25) is not applicable here; giving benefit of doubt, no counter-evidence exists against it. Therefore, the covered portion (slave behavior) is satisfied.",
+    "key_modules": [
+      "usbf_wb"
+    ]
+  },
+  "group1_item9_Handshaking protocol (STB/ACK/ERR/RTY)": {
+    "done": true,
+    "title": "Handshaking protocol (STB/ACK/ERR/RTY)",
+    "confidence": "9",
+    "explanation": "The Wishbone slave interface is implemented by usbf_wb. It starts a transaction when the master asserts CYC/STB, and returns exactly one terminating signal: a single-cycle ACK pulse (wb_ack_o). ERR/RTY are not implemented, which is acceptable under Wishbone as a slave may terminate only with ACK. Wait states are inserted by delaying wb_ack_d/o until the RF access completes or the memory-side ma_ack is received. The FSM also provides post-ack dead cycles (W1/W2) to let the master negate STB/CYC, aligning with the rule that the master ends the cycle upon a terminating signal. Top-level usbf_top exposes wb_* including stb/cyc/ack and no err/rty, consistent with ACK-only termination. Assumption: the master deasserts STB after ACK (standard Wishbone behavior), which the design accommodates but does not enforce.",
+    "key_modules": [
+      "usbf_wb",
+      "usbf_top",
+      "usbf_mem_arb"
+    ]
+  },
+  "group1_item10_Cycle termination generation condition": {
+    "done": true,
+    "title": "Cycle termination generation condition",
+    "confidence": "9",
+    "explanation": "The Wishbone slave usbf_wb explicitly detects a request as wb_stb_i & wb_cyc_i (wb_req_s1 <= wb_stb_i & wb_cyc_i) and generates a one-shot wb_ack_o only in response to that request, qualified by internal conditions (e.g., ma_ack for memory or RF strobe completion). This satisfies the requirement that termination (ACK_O/ERR_O/RTY_O) be a function of CYC_I & STB_I with additional internal qualifiers allowed. ERR_O/RTY_O are not present, but ACK_O behavior complies with the rule.",
+    "key_modules": [
+      "usbf_wb"
+    ]
+  },
+  "group1_item11_Exclusive termination response": {
+    "done": true,
+    "title": "Exclusive termination response",
+    "confidence": "9",
+    "explanation": "The Wishbone slave implementation (usbf_wb) only generates a single-cycle ACK (wb_ack_o) and explicitly does not support ERR_O or RTY_O. The top-level usbf_top I/O list also lacks err_o/rty_o signals. Therefore, it is impossible for more than one of {ACK_O, ERR_O, RTY_O} to be asserted simultaneously, satisfying the exclusivity rule. While this conclusion relies on the provided module descriptions rather than raw RTL, there is no evidence of ERR/RTY anywhere in the hierarchy.",
+    "key_modules": [
+      "usbf_wb",
+      "usbf_top"
+    ]
+  },
+  "group1_item12_Asynchronous vs. registered termination": {
+    "done": true,
+    "title": "Asynchronous vs. registered termination",
+    "confidence": "9",
+    "explanation": "The Wishbone slave usbf_wb generates a registered, one-shot wb_ack_o in the wb_clk domain, driven by a phy_clk FSM and only after RF strobes or memory ma_ack return. It also inserts W1/W2 dead cycles, demonstrating that termination is not combinational from STB_I but registered (adding wait cycles). This aligns with the specification\u2019s note that registered termination adds a wait state and is acceptable, even though the asynchronous option is not used here.",
+    "key_modules": [
+      "usbf_wb"
+    ]
+  },
+  "group1_item13_ACK held-high behavior": {
+    "done": true,
+    "title": "ACK held-high behavior",
+    "confidence": "8",
+    "explanation": "The design is a Wishbone slave (usbf_wb) that explicitly generates a one-shot, single-cycle wb_ack_o pulse per completed access and does not hold ACK_O asserted. This is counter-evidence to the optional permission of holding ACK_O constantly, but since it is optional, not implementing it is acceptable. The mandatory MASTER-side rule about tolerating a held ACK_I is not covered by this core because it does not implement a Wishbone master. Thus, the specification point is only partially covered: the optional slave behavior is not implemented, and the master requirement is out of scope.",
+    "key_modules": [
+      "usbf_wb",
+      "usbf_mem_arb"
+    ]
+  },
+  "group1_item14_Qualification of MASTER outputs with STB": {
+    "done": true,
+    "title": "Qualification of MASTER outputs with STB_O",
+    "confidence": "9",
+    "explanation": "The specification applies to a Wishbone MASTER qualifying ADR_O, DAT_O, SEL_O, WE_O, and TAGN_O with STB_O. In this design, the only Wishbone-facing block (usbf_wb) is explicitly a Wishbone SLAVE, using wb_stb_i/wb_cyc_i and producing wb_ack_o. There is no Wishbone MASTER interface present in usbf_top or its submodules, and internal masters (e.g., usbf_pl via usbf_mem_arb) use custom mreq/mack signals, not Wishbone. Therefore, this rule is not implemented/applicable here.",
+    "key_modules": [
+      "usbf_wb",
+      "usbf_top"
+    ]
+  },
+  "group1_item15_Qualification of SLAVE data out": {
+    "done": true,
+    "title": "Qualification of SLAVE data out",
+    "confidence": "8",
+    "explanation": "The Wishbone slave (usbf_wb) asserts a single-cycle ACK_O (wb_ack_o) only when a read is complete: after RF read strobes or after the memory-side ma_ack returns. The read data (wb_data_o) is muxed from rf_din/ma_din and is expected to be valid by the time ACK_O is observed, explicitly stated in the description. ERR_O and RTY_O are not implemented, but qualification via ACK_O satisfies the rule. There is a CDC caveat noted (assumes data stable when ack pulses), but absent counter-evidence we give benefit of doubt.",
+    "key_modules": [
+      "usbf_wb"
+    ]
+  },
+  "group1_item16_Optional error and retry support": {
+    "done": true,
+    "title": "Optional error and retry support",
+    "confidence": "9",
+    "explanation": "The Wishbone interface in this design exposes only addr/data/we/stb/cyc/ack and explicitly omits ERR/RTY signals. The usbf_wb module states it does not support error/retry responses. Since neither master nor slave ERR/RTY signals are implemented, there are no documented reactions or generation conditions. While ERR/RTY are optional in the spec, this RTL does not cover their support or documentation.",
+    "key_modules": [
+      "usbf_top",
+      "usbf_wb"
+    ]
+  },
+  "group1_item17_LOCK semantics for uninterruptible cycle": {
+    "done": true,
+    "title": "LOCK semantics for uninterruptible cycles",
+    "confidence": "9",
+    "explanation": "The design does not expose or handle Wishbone LOCK signals. Top-level Wishbone I/Os list only addr/data/we/stb/cyc/ack, with no LOCK_O/LOCK_I. The usbf_wb Wishbone slave FSM operates solely on cyc/stb and generates one-shot acks; it has no logic to sample or enforce LOCK semantics. Additionally, the internal usbf_mem_arb explicitly allows preemption (M-side can preempt W-side anytime), which is counter to uninterruptible ownership semantics. Hence the LOCK semantics are not implemented. No hidden submodule suggests otherwise.",
+    "key_modules": [
+      "usbf_top",
+      "usbf_wb",
+      "usbf_mem_arb"
+    ]
+  },
+  "group1_item18_Tagging support and tag types": {
+    "done": true,
+    "title": "Tagging support and tag types",
+    "confidence": "9",
+    "explanation": "The design implements a classic Wishbone interface without tags. Top-level and usbf_wb expose only wb_addr/data/we/stb/cyc/ack and there are no TGA_*, TGD_*, or TGC_* ports or logic, nor any mention of tag qualification with STB/CYC or timing rules. This is direct counter-evidence that the required tag types and timing are not implemented. While some details come from module descriptions rather than raw RTL, the absence of tag signals throughout the hierarchy makes tag support highly unlikely.",
+    "key_modules": [
+      "usbf_top",
+      "usbf_wb"
+    ]
+  },
+  "group1_item19_Cycle identification via tags (recommend": {
+    "done": true,
+    "title": "Cycle identification via tags (recommendation)",
+    "confidence": "9",
+    "explanation": "The design uses a Wishbone interface (wb_cyc, wb_stb, wb_we, wb_ack) and internal memory handshakes (mreq/mack, wreq/wack) without any cycle-tag outputs like TGC_O(), SGL_O, BLK_O, or RMW_O. Detailed module descriptions for the bus-facing blocks (usbf_wb and usbf_mem_arb) enumerate all relevant signals and do not include any cycle identification tags. Therefore, the recommendation to include cycle tags is not implemented.",
+    "key_modules": [
+      "usbf_wb",
+      "usbf_mem_arb",
+      "usbf_top"
+    ]
+  },
+  "group1_item20_SINGLE READ cycle behavior": {
+    "done": true,
+    "title": "SINGLE READ cycle behavior",
+    "confidence": "8",
+    "explanation": "The Wishbone read-cycle handshake is implemented: the master asserts CYC/STB with WE=0, the usbf_wb slave returns data and a single-cycle ACK, and it can insert wait states by deferring ACK until ma_ack (from the memory path) is received. The W1/W2 delay also accommodates master deassertion of STB/CYC after ACK. However, this design omits SEL_O (byte enables) and the TGA/TGD tag signals on the Wishbone interface, so those parts of the spec excerpt are not implemented.",
+    "key_modules": [
+      "usbf_wb",
+      "usbf_mem_arb",
+      "usbf_top"
+    ]
+  },
+  "group1_item21_SINGLE WRITE cycle behavior": {
+    "done": true,
+    "title": "SINGLE WRITE cycle behavior",
+    "confidence": "8",
+    "explanation": "The Wishbone slave usbf_wb implements classic single-write handshake: it accepts a write when wb_cyc_i & wb_stb_i are asserted, holds the internal request until completion, and generates a single-cycle wb_ack_o pulse, after which the master is expected to drop STB/CYC. It can insert wait states by delaying ack until ma_ack returns from the memory side. However, usbf_wb explicitly does not implement byte enables (SEL_O) and does not cover tag signals (TGA/TGD). Thus, while the core behavior (ack/negation and wait-state capability) matches the spec, the SEL/TAG signal aspects are not implemented.",
+    "key_modules": [
+      "usbf_wb",
+      "usbf_mem_arb"
+    ]
+  },
+  "group1_item22_BLOCK cycles and CYC_O usage": {
+    "done": true,
+    "title": "BLOCK cycles and CYC_O usage",
+    "confidence": "8",
+    "explanation": "The Wishbone slave (usbf_wb) implements only single-beat classic accesses with a one-shot ack per access and inserts fixed dead cycles (W1/W2) to encourage the master to drop STB/CYC, which counters the notion of maintaining CYC_O across multiple phases for BLOCK cycles. There is no LOCK_O support (not present on top-level ports), and no CTI/BTE or explicit burst/block-cycle handling is described. While a master could theoretically hold CYC asserted and re-trigger accesses, the design\u2019s own notes state it does not support bursts/pipeline beyond one-beat-per-ack, providing counter-evidence for formal BLOCK cycle support.",
+    "key_modules": [
+      "usbf_wb",
+      "usbf_top"
+    ]
+  },
+  "group1_item23_RMW (Read-Modify-Write) cycle": {
+    "done": true,
+    "title": "RMW (Read-Modify-Write) cycle",
+    "confidence": "8",
+    "explanation": "The provided design implements a Wishbone slave (usbf_wb) that generates a single-cycle ack per access and inserts two dead cycles after each transaction. There is no explicit support for an atomic RMW sequence (read followed by write) with CYC held across both phases, nor any lock/indivisibility semantics. While the master could theoretically keep CYC asserted across consecutive read and write accesses, the module does not document or guarantee RMW behavior per the specification. The internal read-modify-write in usbf_idma pertains to a private SRAM interface and does not implement Wishbone RMW semantics.",
+    "key_modules": [
+      "usbf_wb",
+      "usbf_mem_arb",
+      "usbf_idma"
+    ]
+  },
+  "group1_item24_Data bus width and granularity": {
+    "done": true,
+    "title": "Data bus width and granularity",
+    "confidence": "9",
+    "explanation": "The design fixes the external/memory-side data path at 32 bits and explicitly does not implement byte enables/SEL lines. usbf_wb states 'No byte enables', and the Wishbone interface lacks SEL_* signals. The memory arbiter (usbf_mem_arb) and top-level also assume word-based (32-bit) transfers only (W-side address drops [1:0]). This contradicts the spec, which requires selectable port sizes and SEL width = port_size/granularity mapping per lane. While internal logic (e.g., idma) handles byte packing/unpacking, it does not expose SEL-based granularity at the bus ports, so the requirement is not met.",
+    "key_modules": [
+      "usbf_wb",
+      "usbf_mem_arb",
+      "usbf_top"
+    ]
+  },
+  "group1_item25_Data organization and endian rules": {
+    "done": true,
+    "title": "Data organization and endian rules",
+    "confidence": "8",
+    "explanation": "Across usbf_top and submodules there is no mention of big vs little endian support nor of the fixed mapping of byte/word/DWORD/QWORD onto DAT buses with SEL lines. The Wishbone interface omits SEL signals and appears word-only; the external SSRAM interface has no byte-enable strobes. While the internal DMA packs/unpacks bytes into 32-bit words, it does not define endianness or bus SEL mapping. Therefore the required data organization/endian rules are not implemented or described.",
+    "key_modules": [
+      "usbf_top",
+      "usbf_wb",
+      "usbf_mem_arb",
+      "usbf_idma"
+    ]
+  },
+  "group1_item26_Transfer sequencing recommendation": {
+    "done": true,
+    "title": "Transfer sequencing recommendation",
+    "confidence": "2",
+    "explanation": "The USB device core and its submodules do not state or implement any policy about multi-beat operand sequencing across a width mismatch (e.g., 64-bit operand over a 32-bit port). While usbf_idma increments memory addresses sequentially (lower to higher), this is ordinary buffer streaming and not an explicit implementation of the recommendation about beat order for wider operands over a narrower interface. No module documents configurability or a mandated/optional order for such operand splitting. Therefore, the specification point is not covered. Giving benefit of doubt: the observed ascending address progression aligns with the recommendation, but this is incidental and not evidence of implementing the spec point.",
+    "key_modules": [
+      "usbf_idma",
+      "usbf_mem_arb",
+      "usbf_wb"
+    ]
+  },
+  "group1_item27_SEL_*() semantics": {
+    "done": true,
+    "title": "SEL_*() semantics",
+    "confidence": "9",
+    "explanation": "The Wishbone interface in this design does not implement byte-lane select signals. There are no wb_sel_i/o signals anywhere in usbf_top or its submodules, and usbf_wb explicitly states it has no byte enables. The memory path is word-based (arbiter drops [1:0]), so there is no mapping of SEL to byte lanes as required by the specification. This is direct counter-evidence that SEL_* semantics are not covered.",
+    "key_modules": [
+      "usbf_wb",
+      "usbf_mem_arb",
+      "usbf_top"
+    ]
+  },
+  "group1_item28_Address bus lower bits vs. port size": {
+    "done": true,
+    "title": "Address bus lower bits vs. port size",
+    "confidence": "9",
+    "explanation": "The design consistently omits the lower address bits to match a 32-bit port with byte granularity: the Wishbone-to-RF path uses word addresses adr[8:2] (dropping [1:0]); the memory path converts byte addresses to word addresses (dropping [1:0]) and exposes a word-based W-side address ma_adr[SSRAM_HADR+2:2]; the DMA similarly splits a byte address into a word address madr=adr[SSRAM_HADR+2:2] and a byte-in-word index. This matches the spec\u2019s requirement (ADR_O(n..2) for 32-bit). The optional note about FIFO-type slaves omitting ADR is not applicable here and not contradicted by the implementation.",
+    "key_modules": [
+      "usbf_wb",
+      "usbf_mem_arb",
+      "usbf_idma",
+      "usbf_rf",
+      "usbf_top"
+    ]
+  },
+  "group1_item29_WISHBONE Registered Feedback (RFB) compa": {
+    "done": true,
+    "title": "WISHBONE Registered Feedback (RFB) compatibility",
+    "confidence": "9",
+    "explanation": "The Wishbone interface in this design explicitly implements Classic cycles only, with a one-beat-per-ack handshake and no pipeline/RFB features. The specification states RFB is optional and that RFB-capable cores must also support Classic; furthermore, if only one side supports RFB, the cycle behaves as Classic. Since usbf_wb supports Classic cycles, the system is compliant with the RFB compatibility requirement even without implementing RFB. There is no evidence of RFB support, but that is not required for compliance.",
+    "key_modules": [
+      "usbf_wb",
+      "usbf_top"
+    ]
+  },
+  "group1_item30_Cycle Type Identifier (CTI) tag": {
+    "done": true,
+    "title": "Cycle Type Identifier (CTI) tag",
+    "confidence": "9",
+    "explanation": "The design exposes no Wishbone CTI_O/I[2:0] signals at the top level and the Wishbone slave (usbf_wb) explicitly states it supports only single-beat classic accesses with no bursts or pipelining. There is no handling of CTI codes (000/001/010/111) or End-of-Burst semantics, nor any logic to treat unsupported CTI codes as Classic. Therefore, the CTI tag specification is not implemented.",
+    "key_modules": [
+      "usbf_top",
+      "usbf_wb"
+    ]
+  },
+  "group1_item31_Burst Type Extension (BTE) tag": {
+    "done": true,
+    "title": "Burst Type Extension (BTE) tag",
+    "confidence": "9",
+    "explanation": "The Wishbone-facing block (usbf_wb) implements only classic, single-beat cycles and explicitly states it does not support bursts or pipeline features. There are no CTI/BTE ports present at the top level (wb_* list lacks CTI/BTE), and no logic describes BTE handling or wrap modes. Therefore, the design neither implements BTE nor indicates fallback handling for unsupported BTE modes; it is strictly Classic.",
+    "key_modules": [
+      "usbf_wb",
+      "usbf_top"
+    ]
+  },
+  "group1_item32_RFB termination signaling nuances": {
+    "done": true,
+    "title": "RFB termination signaling nuances",
+    "confidence": "9",
+    "explanation": "The usbf_wb Wishbone slave asserts a one-shot wb_ack_o when the internal operation completes (RF strobe or ma_ack) without re-checking STB_I at the moment of assertion. Requests are captured earlier via wb_req_s1 <= wb_stb_i & wb_cyc_i, and the later ACK pulse is generated independently, matching the RFB permission that a slave may assert termination without checking STB_I. Additionally, the design does not violate the rule that a cycle only terminates when both STB and a termination signal are asserted; it simply emits ACK and relies on the master\u2019s sampling of STB&ACK for cycle completion, which is compliant. The added W1/W2 dead cycles avoid immediate retrigger but do not condition ACK on STB.",
+    "key_modules": [
+      "usbf_wb"
+    ]
+  },
+  "group1_item33_End-of-Burst requirement": {
+    "done": true,
+    "title": "End-of-Burst requirement",
+    "confidence": "10",
+    "explanation": "The specification requires a Wishbone MASTER to assert CTI=111 to mark end-of-burst. In this design, the only Wishbone-facing block (usbf_wb) is a slave, not a master, and the top-level I/Os do not include CTI/BTE. The usbf_wb description explicitly states it supports no bursts and only single-beat classic handshakes. Therefore, the design cannot assert CTI=111 and does not implement this requirement.",
+    "key_modules": [
+      "usbf_top",
+      "usbf_wb"
+    ]
+  },
+  "group1_item34_Constant address burst (RFB)": {
+    "done": true,
+    "title": "Constant address burst (RFB)",
+    "confidence": "10",
+    "explanation": "The specification concerns Wishbone constant-address bursts (CTI=001). The only Wishbone-facing block, usbf_wb, neither exposes CTI/BTE signals nor supports bursts; it explicitly states 'No ... bursts' and implements single-beat, one-shot acks with fixed dead cycles. Therefore, the required constant-address burst semantics are not implemented.",
+    "key_modules": [
+      "usbf_wb",
+      "usbf_top"
+    ]
+  },
+  "group1_item35_Incrementing burst (RFB)": {
+    "done": true,
+    "title": "Incrementing burst (RFB)",
+    "confidence": "9",
+    "explanation": "The Wishbone interface in this design does not implement incrementing bursts or the required CTI/BTE/SEL semantics. Top-level Wishbone I/Os list only addr/data/we/stb/cyc/ack with no SEL, CTI, or BTE signals. The usbf_wb description explicitly states it does not support bursts or byte enables and generates a one-shot ack per single-beat access. Therefore, the requirements for CTI=010 incrementing bursts (consistent SEL_O, ADR_O increment per beat, BTE-defined wrapping, and slave pre-assert of next termination) are not met.",
+    "key_modules": [
+      "usbf_top",
+      "usbf_wb"
+    ]
+  },
+  "group1_item36_Partial address decoding model": {
+    "done": true,
+    "title": "Partial address decoding model",
+    "confidence": "9",
+    "explanation": "The core uses partial/limited address decoding internally while relying on the system interconnect to present wb_stb_i/wb_cyc_i (coarse slave selection). Specifically, usbf_wb only decodes a single high address bit (HADR) to split between RF and MEM regions, and usbf_rf further decodes only the needed lower address bits (adr[6:2]) within the RF space. HADR is configurable (test vs non-test), demonstrating flexible address sizing. This matches the spec\u2019s model where slaves decode only what they require and the interconnect performs the coarse decode. The interconnect\u2019s generation of STB_I is implied by the Wishbone slave role (not shown inside this RTL), but aligns with standard Wishbone practice.",
+    "key_modules": [
+      "usbf_wb",
+      "usbf_rf",
+      "usbf_top"
+    ]
+  },
+  "group1_item37_One-transfer-per-clock design target": {
+    "done": true,
+    "title": "One-transfer-per-clock design target",
+    "confidence": "9",
+    "explanation": "The Wishbone-facing usbf_wb explicitly does not support pipelining/bursts and inserts a fixed two-cycle dead time (W1/W2) between accesses, producing a one-shot ack after a small FSM/CDC sequence. This contradicts the classic zero-wait asynchronous termination and the RFB one-transfer-per-clock goal. The usbf_mem_arb further shows W-side wack toggling at best every other clock when M is idle, not one-per-clock, and is preempted by the M side. While the M side receives mack=mreq (zero-wait from the arbiter), that is internal to the arbiter and not an RFB/async-terminating Wishbone interface. Hence the design does not implement the spec\u2019s one-transfer-per-clock or its RFB alternative. Benefit of doubt: the internal M-side path is near zero-overhead, but it does not satisfy the Wishbone RFB requirement.",
+    "key_modules": [
+      "usbf_wb",
+      "usbf_mem_arb"
+    ]
+  },
+  "group1_item38_Non-WISHBONE signals allowed": {
+    "done": true,
+    "title": "Non-WISHBONE signals allowed",
+    "confidence": "10",
+    "explanation": "The design clearly includes multiple non-Wishbone interfaces (UTMI PHY pins, UTMI vendor sideband, external SSRAM, DMA handshakes, power-management lines) at the top level. Wishbone handling is isolated within the usbf_wb block, while other modules manage peripheral-side interfaces without applying Wishbone rules. This matches the permission that cores may include non-Wishbone signals not governed by Wishbone rules.",
+    "key_modules": [
+      "usbf_top",
+      "usbf_utmi_if",
+      "usbf_mem_arb",
+      "usbf_rf",
+      "usbf_wb"
+    ]
+  },
+  "group1_item39_Signal naming and mapping": {
+    "done": true,
+    "title": "Signal naming and mapping",
+    "confidence": "8",
+    "explanation": "The core exposes UTMI PHY pins and Wishbone bus signals using spec-standard names (e.g., DataIn/DataOut, TxValid/TxReady, RxValid/RxActive/RxError, LineState, XcvSelect, TermSel, SuspendM, OpMode; wb_* for Wishbone). The top-level documentation lists and groups I/Os, effectively providing a clear mapping between the core and the external interfaces. Since names match the relevant specs, a separate mapping table is not required; if any differences existed, the provided I/O documentation would serve as the mapping. Benefit of doubt: we infer compliance from the documented interfaces rather than a dedicated mapping table.",
+    "key_modules": [
+      "usbf_top",
+      "usbf_utmi_if",
+      "usbf_wb"
+    ]
+  },
+  "group1_item40_WISHBONE DATASHEET requirement": {
+    "done": true,
+    "title": "WISHBONE DATASHEET requirement",
+    "confidence": "9",
+    "explanation": "The design includes a Wishbone slave (usbf_wb) and documents some bus behavior (signals wb_* and one-shot ack, no ERR/RTY, no bursts, no byte enables) and clocking assumptions. However, the requirement asks for a formal WISHBONE datasheet enumerating spec revision, interface type, cross-referenced signal list, ERR/RTY handling, tags (TAG TYPE/operation), port size, granularity, maximum operand size, endian ordering, transfer sequence or UNDEFINED, and CLK constraints (RULE 2.00, 2.15). The provided modules do not state the Wishbone spec revision, do not provide a formal signal cross-reference, do not cover tags, do not specify port size/granularity/max operand size/endian ordering, and do not provide formal clock constraints per the cited rules. While interface type (slave) and some transfer behavior are inferable, the majority of required datasheet fields are missing; thus the requirement is not met.",
+    "key_modules": [
+      "usbf_wb",
+      "usbf_top",
+      "usbf_mem_arb"
+    ]
+  },
+  "group1_item41_Use of CYC_O indefinite assertion": {
+    "done": true,
+    "title": "Use of CYC_O indefinite assertion",
+    "confidence": "9",
+    "explanation": "The specification concerns a Wishbone MASTER\u2019s CYC_O behavior. In this design, the Wishbone-facing block (usbf_wb) is explicitly a Wishbone slave that consumes wb_cyc_i/wb_stb_i from an external master and generates wb_ack_o. No module in the hierarchy implements a Wishbone master or generates CYC_O, nor does any logic address policies about master-held CYC_O duration. Therefore, the point is not covered by this RTL.",
+    "key_modules": [
+      "usbf_wb",
+      "usbf_top"
+    ]
+  },
+  "group1_item42_MASTER critical path recommendation": {
+    "done": true,
+    "title": "MASTER critical path recommendation",
+    "confidence": "9",
+    "explanation": "The design provides only a Wishbone slave (usbf_wb) with wb_stb_i and wb_cyc_i as inputs and wb_ack_o as output; there is no Wishbone master in the hierarchy that would drive STB_O/CYC_O. Therefore the recommendation about a MASTER driving STB_O and CYC_O directly from registers is not applicable/implemented here. This is counter-evidenced by the usbf_wb description and the usbf_top I/O roles.",
+    "key_modules": [
+      "usbf_top",
+      "usbf_wb"
+    ]
+  },
+  "group1_item43_Watchdog and deadlock considerations": {
+    "done": true,
+    "title": "Watchdog and deadlock considerations",
+    "confidence": "8",
+    "explanation": "The design\u2019s Wishbone slave/usbf_wb only generates ACK and explicitly does not implement ERR/RTY responses or any watchdog/error timeout. The interconnect arbiter/usbf_mem_arb provides fixed priority to the USB core (M side) and no timeout/fairness; W-side acks are suppressed while M requests, and there is no mechanism to error-out or recover if ma_ack never returns. This is counter-evidence to the recommendation that the interconnect include watchdog/error handling to prevent deadlock. While the risk case of a SLAVE asserting ERR/RTY is avoided by not supporting ERR/RTY at all, the recommended watchdog/error handling is still absent.",
+    "key_modules": [
+      "usbf_wb",
+      "usbf_mem_arb"
+    ]
+  },
+  "group1_item44_Qualification of tag signals": {
+    "done": true,
+    "title": "Qualification of tag signals",
+    "confidence": "9",
+    "explanation": "The design\u2019s Wishbone interface (in usbf_top and implemented by usbf_wb) exposes only classic wb_* signals (addr, data, we, stb, cyc, ack) and contains no TAG signals (TGA_*, TGD_*, TGC_*). There is no logic describing or qualifying such tags with STB/CYC. This is counter-evidence that the TAG timing associations required by the specification are implemented.",
+    "key_modules": [
+      "usbf_top",
+      "usbf_wb"
+    ]
+  },
+  "group1_item45_Port/address array sizing": {
+    "done": true,
+    "title": "Port/address array sizing",
+    "confidence": "9",
+    "explanation": "The design matches the spec\u2019s sizing rules. Data buses are within the allowed set (UTMI DataIn/Out are 8-bit; external SRAM data is 32-bit). Addressing shows a core-specific upper bound via the SSRAM_HADR parameter and uses a lower bound tied to port size/granularity: for a 32-bit memory port the arbiter/IDMA drop [1:0] and use ADR[SSRAM_HADR+2:2], exactly as ADR(n..2). While only 8-bit and 32-bit widths are used here (not 16/64), the spec permits any of these widths, not requires all, so this is compliant.",
+    "key_modules": [
+      "usbf_top",
+      "usbf_mem_arb",
+      "usbf_idma",
+      "usbf_wb"
+    ]
+  },
+  "group1_item46_STB_I gating of SLAVE behavior": {
+    "done": true,
+    "title": "STB_I gating of SLAVE behavior",
+    "confidence": "9",
+    "explanation": "The Wishbone slave usbf_wb gates all actions on wb_stb_i & wb_cyc_i. Its FSM leaves IDLE and issues RF or MEM operations only when wb_req_s1 <= (wb_stb_i & wb_cyc_i) is true, and it generates a one\u2011shot wb_ack_o only as a consequence of those requests. Thus, termination (ACK) is asserted in response to an STB_I assertion, and the slave does not respond when STB_I is deasserted. Reset is handled independently as required. No counter\u2011evidence found.",
+    "key_modules": [
+      "usbf_wb"
+    ]
+  },
+  "group1_item47_Retry and error semantics (informational": {
+    "done": true,
+    "title": "Retry and error semantics (informational)",
+    "confidence": "9",
+    "explanation": "The design\u2019s Wishbone interface explicitly states it does not implement error/retry responses, and the top-level I/Os do not expose ERR_O/RTY_O. Therefore, ERR and RTY semantics are not supported by this core. While the spec notes that a master\u2019s policy must be documented if supported, here support is explicitly absent, so the protocol point is not implemented.",
+    "key_modules": [
+      "usbf_wb",
+      "usbf_top"
+    ]
+  }
+}
