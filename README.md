@@ -1,10 +1,10 @@
-# ✨ SpecWeave: Scalable, Hierarchy-Aware RTL Functional Recovery using LLM
+# SpecWeave: Scalable, Hierarchy-Aware RTL Functional Recovery using LLM
 
 This repository provides the code and benchmarks for the **SpecWeave** framework, which uses Large Language Models (LLMs) to automatically generate comprehensive, hierarchy-aware specification documents from Register-Transfer Level (RTL) code.
 
 SpecWeave addresses the poor documentation status in hardware design by employing a compositional approach that bypasses the LLM context window limits, achieving high coverage (mean ≈ 85.3%) and accuracy (mean ≈ 90.8%) in functional recovery.
 
-## 📂 Repository Structure
+## Repository Structure
 
 The repository is organized into the following high-level directories:
 
@@ -17,15 +17,15 @@ The repository is organized into the following high-level directories:
 
 ---
 
-## 🛠️ Prerequisites and Setup
+## Prerequisites and Setup
 
-### 📦 Package Requirements
+### Package Requirements
 
 The core framework relies on the following key Python package:
 
 * **`langchain`, `pyverilog`**
 
-### 🔑 API Key Configuration
+### API Key Configuration
 
 Most scripts require setting your API key for the LLM service. You must set an environment variable, typically at the beginning of your main script or environment setup:
 
@@ -35,11 +35,11 @@ import os
 os.environ["OPENAI_API_KEY"] = "YOUR_API_KEY_HERE"
 ```
 
-## ⚙️ Assumptions
+## Assumptions
 
 The current implementation only supports **Verilog** code, as it relies on the underlying **Pyverilog** parser for Control and Data-Flow Graph (CDFG) construction and structural analysis.
 
-## 🚀 Framework Flow and Execution
+## Framework Flow and Execution
 
 The SpecWeave framework proceeds in two main stages: **HSG Generation** (Stage I) and **Spec Synthesis/Verification** (Stage II).
 
@@ -97,7 +97,7 @@ This part of the flow is **not fully automated**; you must manually identify can
         ```
     * **Output**: The final compliance report for the protocol: `{p}_verification_response.pkl`
 
-> 💡 **Note**: Repeat steps 1-3 for any other protocols present in the system (e.g., Wishbone B.3 and B.4).
+> **Note**: Repeat steps 1-3 for any other protocols present in the system (e.g., Wishbone B.3 and B.4).
 
 #### 2.2 Table of Content (ToC) Synthesis
 
