@@ -135,7 +135,7 @@ This is the final content generation step, where GRRA populates each subsection.
     ```
 * **Output**: Converts the JSON specification to the final PDF document.
 
-## 📊 Verification and Metrics
+## Verification and Metrics
 
 The following scripts are used to evaluate the quality of the generated specification against the golden specification.
 
